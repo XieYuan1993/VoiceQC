@@ -1,0 +1,263 @@
+{
+  "_comment": "Golden-day fixture: single source of truth for all mock integration artifacts. The EOD file generator, mock back-office API, and recording generator all derive from this file, so transactions and call audio stay consistent. Expected recon outcomes are embedded for future golden-fixture tests.",
+  "trade_date": "2026-06-11",
+  "timezone": "Asia/Hong_Kong",
+  "recorder": {
+    "filename_pattern": "{extension}_{YYYYMMDD}_{HHMMSS}_{direction}_{caller}.wav",
+    "filename_regex": "^(?P<broker_ext>\\d{4})_(?P<date>\\d{8})_(?P<time>\\d{6})_(?P<direction>IN|OUT)_(?P<caller>\\d+)\\.wav$",
+    "channels": "stereo: left=broker, right=customer",
+    "sample_rate_hz": 16000
+  },
+  "brokers": [
+    { "ae_code": "AE012", "name": "Alex Cheung", "extension": "2012" },
+    { "ae_code": "AE015", "name": "Bonnie Ho", "extension": "2015" },
+    { "ae_code": "AE020", "name": "Carmen Lau", "extension": "2020" }
+  ],
+  "clients": [
+    { "id": "C1", "name_en": "CHAN TAI MAN", "name_zh": "陳大文", "account": "0188-100234", "phone": "98765432" },
+    { "id": "C2", "name_en": "WONG SIU MEI", "name_zh": "黃小美", "account": "0188-100567", "phone": "91234567" },
+    { "id": "C3", "name_en": "LEE KA HO", "name_zh": "李家豪", "account": "0188-101888", "phone": "92223333" },
+    { "id": "C4", "name_en": "CHEUNG MAN KIT", "name_zh": "張文傑", "account": "0188-102456", "phone": "96660000" },
+    { "id": "C5", "name_en": "NG WING YAN", "name_zh": "吳詠欣", "account": "0188-103999", "phone": "93331111" },
+    { "id": "C6", "name_en": "LAM CHI KEUNG", "name_zh": "林志強", "account": "0188-104777", "phone": "90008888" },
+    { "id": "C7", "name_en": "KWOK YEE LING", "name_zh": "郭綺玲", "account": "0188-105321", "phone": "97770000" },
+    { "id": "C8", "name_en": "HO CHUN YIN", "name_zh": "何俊賢", "account": "0188-106654", "phone": "95554444" }
+  ],
+  "recordings": [
+    {
+      "id": "R1",
+      "extension": "2012",
+      "direction": "IN",
+      "caller": "98765432",
+      "start_time": "09:42:10",
+      "client": "C1",
+      "turns": [
+        { "speaker": "broker", "voice": "yue", "text": "早晨，華富證券，我係Alex，請問點稱呼？" },
+        { "speaker": "customer", "voice": "yue", "text": "你好，我係陳大文，戶口號碼零一八八，一零零二三四。" },
+        { "speaker": "broker", "voice": "yue", "text": "多謝陳生。今日想做啲咩？" },
+        { "speaker": "customer", "voice": "yue", "text": "我想買騰訊，七百號，一萬股，限價六百一十二蚊。" },
+        { "speaker": "broker", "voice": "yue", "text": "明白。同你覆述一次：買入騰訊控股，編號零零七零零，一共一萬股，限價六百一十二港元。啱唔啱？" },
+        { "speaker": "customer", "voice": "yue", "text": "啱，唔該。" },
+        { "speaker": "broker", "voice": "yue", "text": "好，幫你落咗單喇陳生。成交之後會有短訊通知你。仲有冇其他想做？" },
+        { "speaker": "customer", "voice": "yue", "text": "冇喇，唔該晒。" },
+        { "speaker": "broker", "voice": "yue", "text": "多謝致電華富證券，拜拜。" }
+      ],
+      "expected": {
+        "trade_instructions": [
+          { "stock_code": "700", "side": "buy", "quantity": 10000, "price": 612.0, "price_type": "limit" }
+        ],
+        "criteria_failures": [],
+        "recon": { "bucket": "matched", "transactions": ["T1"], "match_status": "auto_matched" }
+      }
+    },
+    {
+      "id": "R2",
+      "extension": "2015",
+      "direction": "IN",
+      "caller": "91234567",
+      "start_time": "10:05:33",
+      "client": "C2",
+      "turns": [
+        { "speaker": "broker", "voice": "yue", "text": "你好，華富證券，我係Bonnie。" },
+        { "speaker": "customer", "voice": "yue", "text": "你好，黃小美呀，帳戶尾號零五六七。" },
+        { "speaker": "broker", "voice": "yue", "text": "黃小姐你好，想點幫你？" },
+        { "speaker": "customer", "voice": "yue", "text": "建行呀，九三九，幫我沽四萬股，市價得喇。" },
+        { "speaker": "broker", "voice": "yue", "text": "收到，即刻幫你做。" },
+        { "speaker": "customer", "voice": "yue", "text": "好，唔該。" },
+        { "speaker": "broker", "voice": "yue", "text": "得喇，落咗單喇。多謝致電，拜拜。" }
+      ],
+      "expected": {
+        "trade_instructions": [
+          { "stock_code": "939", "side": "sell", "quantity": 40000, "price": null, "price_type": "market" }
+        ],
+        "criteria_failures": ["order_readback"],
+        "recon": { "bucket": "matched", "transactions": ["T2"], "match_status": "auto_matched" },
+        "_note": "Broker never reads the order back — the order_readback criterion should fail on this call."
+      }
+    },
+    {
+      "id": "R3",
+      "extension": "2012",
+      "direction": "IN",
+      "caller": "92223333",
+      "start_time": "10:31:05",
+      "client": "C3",
+      "turns": [
+        { "speaker": "broker", "voice": "yue", "text": "華富證券，我係Alex。" },
+        { "speaker": "customer", "voice": "yue", "text": "Alex，李家豪呀，account 零一八八一零一八八八。" },
+        { "speaker": "broker", "voice": "yue", "text": "李生你好，請講。" },
+        { "speaker": "customer", "voice": "yue", "text": "想做兩單嘢。第一，匯豐，五號仔，買五千股，limit 一百零二個半。" },
+        { "speaker": "broker", "voice": "yue", "text": "買入匯豐五千股，限價一百零二點五。第二單呢？" },
+        { "speaker": "customer", "voice": "yue", "text": "仲有小米，一八一零，沽兩萬股，市價。" },
+        { "speaker": "broker", "voice": "yue", "text": "好，同你覆述：第一單，買入匯豐控股五千股，限價一百零二蚊五毫。第二單，沽出小米集團兩萬股，市價盤。兩單都確認？" },
+        { "speaker": "customer", "voice": "yue", "text": "Confirm，唔該。" },
+        { "speaker": "broker", "voice": "yue", "text": "好，兩單都幫你落咗。多謝李生，拜拜。" }
+      ],
+      "expected": {
+        "trade_instructions": [
+          { "stock_code": "5", "side": "buy", "quantity": 5000, "price": 102.5, "price_type": "limit" },
+          { "stock_code": "1810", "side": "sell", "quantity": 20000, "price": null, "price_type": "market" }
+        ],
+        "criteria_failures": [],
+        "recon": { "bucket": "matched", "transactions": ["T3", "T4"], "match_status": "auto_matched" },
+        "_note": "Multi-trade call: one recording matches two transactions."
+      }
+    },
+    {
+      "id": "R4",
+      "extension": "2020",
+      "direction": "IN",
+      "caller": "96660000",
+      "start_time": "11:12:48",
+      "client": "C4",
+      "turns": [
+        { "speaker": "broker", "voice": "yue", "text": "華富證券，我係Carmen。" },
+        { "speaker": "customer", "voice": "yue", "text": "你好，張文傑，戶口零一八八，一零二四五六。" },
+        { "speaker": "broker", "voice": "yue", "text": "張生你好，今日想做咩？" },
+        { "speaker": "customer", "voice": "yue", "text": "中國銀行，三九八八，買十萬股，限價三蚊五毫半。" },
+        { "speaker": "broker", "voice": "yue", "text": "覆述一次：買入中國銀行十萬股，限價三點五五港元。啱唔啱？" },
+        { "speaker": "customer", "voice": "yue", "text": "啱。張單可能要分批成交，都OK嘅。" },
+        { "speaker": "broker", "voice": "yue", "text": "明白，限價盤會喺市場慢慢成交，分開幾批都會同你入到貨。而家幫你落單。" },
+        { "speaker": "customer", "voice": "yue", "text": "好，唔該晒。" }
+      ],
+      "expected": {
+        "trade_instructions": [
+          { "stock_code": "3988", "side": "buy", "quantity": 100000, "price": 3.55, "price_type": "limit" }
+        ],
+        "criteria_failures": [],
+        "recon": { "bucket": "matched", "transactions": ["T5", "T6"], "match_status": "auto_matched" },
+        "_note": "Split fill: one instruction for 100,000 shares executes as two transactions (60,000 + 40,000), the second after lunch."
+      }
+    },
+    {
+      "id": "R5",
+      "extension": "2015",
+      "direction": "IN",
+      "caller": "93331111",
+      "start_time": "11:46:20",
+      "client": "C5",
+      "turns": [
+        { "speaker": "broker", "voice": "cmn", "text": "你好，華富證券，我是Bonnie。" },
+        { "speaker": "customer", "voice": "cmn", "text": "你好，我是吳詠欣，賬戶零一八八，一零三九九九。我想買友邦保險。" },
+        { "speaker": "broker", "voice": "cmn", "text": "吳小姐你好。友邦保險，一二九九。請問買多少？" },
+        { "speaker": "customer", "voice": "cmn", "text": "兩千股，市價就可以。" },
+        { "speaker": "broker", "voice": "cmn", "text": "好的，跟您覆述一次：買入友邦保險兩千股，市價盤。對嗎？" },
+        { "speaker": "customer", "voice": "cmn", "text": "對的，謝謝。" },
+        { "speaker": "broker", "voice": "cmn", "text": "已經幫您下單了，成交後會有通知。謝謝來電。" }
+      ],
+      "expected": {
+        "trade_instructions": [
+          { "stock_code": "1299", "side": "buy", "quantity": 2000, "price": null, "price_type": "market" }
+        ],
+        "criteria_failures": [],
+        "recon": { "bucket": "matched", "transactions": ["T7"], "match_status": "auto_matched" },
+        "_note": "Mandarin-language call — exercises the multi-language ASR path."
+      }
+    },
+    {
+      "id": "R6",
+      "extension": "2020",
+      "direction": "IN",
+      "caller": "90008888",
+      "start_time": "14:21:54",
+      "client": "C6",
+      "turns": [
+        { "speaker": "broker", "voice": "yue", "text": "華富證券，我係Carmen。" },
+        { "speaker": "customer", "voice": "yue", "text": "林志強。戶口尾號四七七七。" },
+        { "speaker": "broker", "voice": "yue", "text": "林生你好，請講。" },
+        { "speaker": "customer", "voice": "yue", "text": "美團，三六九零，幫我沽一萬五千股，限價一百一十八蚊。" },
+        { "speaker": "broker", "voice": "yue", "text": "覆述：沽出美團一萬五千股，限價一百一十八港元。確認？" },
+        { "speaker": "customer", "voice": "yue", "text": "確認。" }
+      ],
+      "expected": {
+        "trade_instructions": [
+          { "stock_code": "3690", "side": "sell", "quantity": 15000, "price": 118.0, "price_type": "limit" }
+        ],
+        "criteria_failures": [],
+        "recon": { "bucket": "recording_no_txn", "severity": "suspicious" },
+        "_note": "Clear sell instruction on the call but NO matching transaction exists — must surface as suspicious."
+      }
+    },
+    {
+      "id": "R7",
+      "extension": "2012",
+      "direction": "IN",
+      "caller": "91112222",
+      "start_time": "14:55:30",
+      "client": null,
+      "turns": [
+        { "speaker": "broker", "voice": "yue", "text": "華富證券，我係Alex。" },
+        { "speaker": "customer", "voice": "yue", "text": "你好，想問下我個戶口結餘，仲有下星期嗰隻新股IPO點認購。" },
+        { "speaker": "broker", "voice": "yue", "text": "冇問題。戶口結餘可以喺手機app度即時睇到。至於下星期嗰隻新股，星期一朝早九點開始認購，喺app或者網上交易系統入面都做到。" },
+        { "speaker": "customer", "voice": "yue", "text": "明白，咁我自己喺app度搞掂先，今日唔使落單住。唔該晒。" },
+        { "speaker": "broker", "voice": "yue", "text": "唔使客氣，有需要再打嚟。拜拜。" }
+      ],
+      "expected": {
+        "trade_instructions": [],
+        "criteria_failures": [],
+        "recon": { "bucket": "recording_no_txn", "severity": "info" },
+        "_note": "Pure service/inquiry call — zero trade instructions, benign."
+      }
+    },
+    {
+      "id": "R8",
+      "extension": "2015",
+      "direction": "IN",
+      "caller": "97770000",
+      "client": "C7",
+      "start_time": "15:10:11",
+      "turns": [
+        { "speaker": "broker", "voice": "yue", "text": "華富證券，我係Bonnie。" },
+        { "speaker": "customer", "voice": "yue", "text": "Bonnie，係我呀，想買啲平安保險呀。" },
+        { "speaker": "broker", "voice": "yue", "text": "郭小姐吖嘛？把聲都認得喇。平安，二三一八，買幾多呀？" },
+        { "speaker": "customer", "voice": "yue", "text": "八千股，限價三十五蚊九。" },
+        { "speaker": "broker", "voice": "yue", "text": "覆述一次：買入中國平安八千股，限價三十五點九港元。啱唔啱？" },
+        { "speaker": "customer", "voice": "yue", "text": "啱喇，唔該。" },
+        { "speaker": "broker", "voice": "yue", "text": "落咗單喇，得閒再搵你飲茶！拜拜。" }
+      ],
+      "expected": {
+        "trade_instructions": [
+          { "stock_code": "2318", "side": "buy", "quantity": 8000, "price": 35.9, "price_type": "limit" }
+        ],
+        "criteria_failures": ["identity_verification"],
+        "recon": { "bucket": "matched", "transactions": ["T8"], "match_status": "needs_review" },
+        "_note": "Broker recognises the caller by voice and never verifies identity (criterion fails). Booked quantity (6,000) differs from instructed (8,000) and no account number is spoken, so the match score lands in the needs-review band."
+      }
+    }
+  ],
+  "transactions": [
+    { "id": "T1", "trade_ref": "TRD-20260611-0001", "client": "C1", "ae_code": "AE012", "stock_code": "00700", "stock_name": "TENCENT", "side": "B", "qty": 10000, "price": 612.0, "amount": 6120000.0, "order_channel": "PHONE", "order_time": "09:45:58", "exec_time": "09:47:21", "status": "FILLED",
+      "expected": { "bucket": "matched", "recording": "R1", "match_status": "auto_matched" } },
+    { "id": "T2", "trade_ref": "TRD-20260611-0002", "client": "C2", "ae_code": "AE015", "stock_code": "00939", "stock_name": "CCB", "side": "S", "qty": 40000, "price": 6.62, "amount": 264800.0, "order_channel": "PHONE", "order_time": "10:06:30", "exec_time": "10:07:02", "status": "FILLED",
+      "expected": { "bucket": "matched", "recording": "R2", "match_status": "auto_matched" } },
+    { "id": "T3", "trade_ref": "TRD-20260611-0003", "client": "C3", "ae_code": "AE012", "stock_code": "00005", "stock_name": "HSBC HOLDINGS", "side": "B", "qty": 5000, "price": 102.5, "amount": 512500.0, "order_channel": "PHONE", "order_time": "10:34:50", "exec_time": "10:36:40", "status": "FILLED",
+      "expected": { "bucket": "matched", "recording": "R3", "match_status": "auto_matched" } },
+    { "id": "T4", "trade_ref": "TRD-20260611-0004", "client": "C3", "ae_code": "AE012", "stock_code": "01810", "stock_name": "XIAOMI-W", "side": "S", "qty": 20000, "price": 55.25, "amount": 1105000.0, "order_channel": "PHONE", "order_time": "10:32:40", "exec_time": "10:33:15", "status": "FILLED",
+      "expected": { "bucket": "matched", "recording": "R3", "match_status": "auto_matched" } },
+    { "id": "T5", "trade_ref": "TRD-20260611-0005", "client": "C4", "ae_code": "AE020", "stock_code": "03988", "stock_name": "BANK OF CHINA", "side": "B", "qty": 60000, "price": 3.55, "amount": 213000.0, "order_channel": "PHONE", "order_time": "11:15:22", "exec_time": "11:20:05", "status": "FILLED",
+      "expected": { "bucket": "matched", "recording": "R4", "match_status": "auto_matched" } },
+    { "id": "T6", "trade_ref": "TRD-20260611-0006", "client": "C4", "ae_code": "AE020", "stock_code": "03988", "stock_name": "BANK OF CHINA", "side": "B", "qty": 40000, "price": 3.55, "amount": 142000.0, "order_channel": "PHONE", "order_time": "11:15:22", "exec_time": "13:02:11", "status": "FILLED",
+      "expected": { "bucket": "matched", "recording": "R4", "match_status": "auto_matched", "_note": "Second leg of the split fill — same instruction as T5." } },
+    { "id": "T7", "trade_ref": "TRD-20260611-0007", "client": "C5", "ae_code": "AE015", "stock_code": "01299", "stock_name": "AIA", "side": "B", "qty": 2000, "price": 88.65, "amount": 177300.0, "order_channel": "PHONE", "order_time": "11:47:50", "exec_time": "11:48:33", "status": "FILLED",
+      "expected": { "bucket": "matched", "recording": "R5", "match_status": "auto_matched" } },
+    { "id": "T8", "trade_ref": "TRD-20260611-0008", "client": "C7", "ae_code": "AE015", "stock_code": "02318", "stock_name": "PING AN", "side": "B", "qty": 6000, "price": 35.9, "amount": 215400.0, "order_channel": "PHONE", "order_time": "15:12:30", "exec_time": "15:18:46", "status": "FILLED",
+      "expected": { "bucket": "matched", "recording": "R8", "match_status": "needs_review", "_note": "Qty 6,000 vs instructed 8,000 → content score lands in the review band." } },
+    { "id": "T9", "trade_ref": "TRD-20260611-0009", "client": "C8", "ae_code": "AE015", "stock_code": "01398", "stock_name": "ICBC", "side": "B", "qty": 50000, "price": 5.84, "amount": 292000.0, "order_channel": "PHONE", "order_time": "14:40:10", "exec_time": "14:42:55", "status": "FILLED",
+      "expected": { "bucket": "txn_no_recording", "severity": "breach", "_note": "Phone-channel order with no recorded call — the compliance breach scenario." } },
+    { "id": "T10", "trade_ref": "TRD-20260611-0010", "client": "C2", "ae_code": "", "stock_code": "00700", "stock_name": "TENCENT", "side": "S", "qty": 3000, "price": 614.2, "amount": 1842600.0, "order_channel": "INTERNET", "order_time": "12:15:08", "exec_time": "12:15:09", "status": "FILLED",
+      "expected": { "bucket": "excluded", "_note": "Internet order — excluded when recon.phone_only is on." } },
+    { "id": "T11", "trade_ref": "TRD-20260611-0011", "client": "C5", "ae_code": "", "stock_code": "02800", "stock_name": "TRACKER FUND", "side": "B", "qty": 10000, "price": 19.84, "amount": 198400.0, "order_channel": "INTERNET", "order_time": "15:41:30", "exec_time": "15:41:31", "status": "FILLED",
+      "expected": { "bucket": "excluded", "_note": "Internet order — excluded when recon.phone_only is on." } },
+    { "id": "T12", "trade_ref": "TRD-20260611-0012", "client": "C3", "ae_code": "AE012", "stock_code": "00941", "stock_name": "CHINA MOBILE", "side": "B", "qty": 5000, "price": 71.2, "amount": null, "order_channel": "PHONE", "order_time": "09:10:05", "exec_time": null, "status": "CANCELLED",
+      "expected": { "bucket": "excluded", "_note": "Cancelled, never executed. Import must filter to FILLED rows, otherwise this becomes a false breach (phone order, no recording)." } }
+  ],
+  "expected_recon_summary": {
+    "auto_matched": 7,
+    "needs_review": 1,
+    "txn_no_recording_breach": 1,
+    "recording_no_txn_suspicious": 1,
+    "recording_no_txn_info": 1,
+    "excluded_internet": 2,
+    "excluded_cancelled": 1
+  }
+}

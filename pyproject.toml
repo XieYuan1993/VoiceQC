@@ -1,0 +1,73 @@
+[project]
+name = "voiceqa"
+version = "0.0.1"
+requires-python = ">=3.12"
+description = "VoiceQA — call quality & compliance platform, workspace root"
+readme = "README.md"
+
+# Repo-root package has no runtime deps; everything lives in workspace members.
+dependencies = []
+
+[tool.uv.workspace]
+members = ["apps/api", "apps/worker", "shared"]
+
+[tool.uv.sources]
+voiceqa-shared = { workspace = true }
+
+[dependency-groups]
+dev = [
+  "ruff>=0.8",
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+  "alembic>=1.14",
+  "sqlalchemy[asyncio]>=2.0.36",
+  "asyncpg>=0.30",
+  "psycopg[binary]>=3.2",
+  "pydantic-settings>=2.5",
+  "python-dotenv>=1.0",
+  "voiceqa-shared",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["infra/migrations/versions", "mocks"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "ASYNC", "TID", "RUF"]
+ignore = ["E501"]  # line length handled by formatter
+
+[tool.ruff.lint.per-file-ignores]
+# Intentional pattern: `load_dotenv()` runs before module-level imports
+# of voiceqa_shared / worker.settings so they see the populated env.
+"infra/seed/seed.py" = ["E402"]
+"apps/worker/worker/celery_app.py" = ["E402"]
+# Temp-file unlink in the upload handler is a microsecond-scale cleanup;
+# bouncing it through a threadpool buys nothing.
+"apps/api/app/routers/batches.py" = ["ASYNC240"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's Depends/Query/Header/... as default arguments are factory
+# functions, not mutable defaults — silence the B008 false positive.
+extend-immutable-calls = [
+    # Our RBAC dependency factory — used as Depends(require(PERM)).
+    "app.permissions.require",
+    "require",
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Header",
+    "fastapi.Body",
+    "fastapi.Form",
+    "fastapi.File",
+    "fastapi.Cookie",
+    "fastapi.Security",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["apps/api/tests", "apps/worker/tests", "shared/tests"]

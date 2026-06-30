@@ -1,0 +1,70 @@
+name: voiceqa
+
+# `docker compose up` brings up the data plane only (postgres, redis,
+# mailhog). The api / worker / web run on the host with hot-reload in dev;
+# containerized app services arrive with the deployment phase.
+#
+# Host ports are shifted (55433/56380/1026/8026) so this stack coexists
+# with Voicebot-Platform's compose on the same machine.
+
+x-common-env: &common-env
+  TZ: UTC
+
+services:
+  postgres:
+    image: postgres:16
+    # NOTE: pin by digest before any production deployment; the `16` tag
+    # floats minor versions.
+    container_name: voiceqa-postgres
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+      POSTGRES_USER: ${POSTGRES_USER:-voiceqa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-voiceqa}
+      POSTGRES_DB: ${POSTGRES_DB:-voiceqa}
+    ports:
+      - "${POSTGRES_PORT:-55433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-voiceqa} -d ${POSTGRES_DB:-voiceqa}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  redis:
+    image: redis:7-alpine
+    container_name: voiceqa-redis
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+    ports:
+      - "${REDIS_PORT:-56380}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    container_name: voiceqa-mailhog
+    restart: unless-stopped
+    environment:
+      <<: *common-env
+    ports:
+      - "${SMTP_PORT:-1026}:1025"   # SMTP
+      - "${MAILHOG_UI_PORT:-8026}:8025"   # Web UI
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8025 || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  pgdata:
+  redisdata:

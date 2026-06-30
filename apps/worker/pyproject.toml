@@ -1,0 +1,35 @@
+[project]
+name = "voiceqa-worker"
+version = "0.0.1"
+requires-python = ">=3.12"
+description = "Celery worker for Quam VoiceQA — audio normalize, batch STT, evaluation, recon."
+dependencies = [
+  "celery[redis]>=5.4",
+  "redis>=5.2",
+  "sqlalchemy[asyncio]>=2.0.36",
+  "asyncpg>=0.30",
+  "psycopg[binary]>=3.2",
+  "pydantic-settings>=2.5",
+  "python-dotenv>=1.0",
+  "loguru>=0.7",
+  "voiceqa-shared",
+  "google-cloud-speech>=2.27",
+  "google-genai>=1.16",
+  "croniter>=3.0",
+  "httpx>=0.27",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3",
+]
+
+[tool.uv.sources]
+voiceqa-shared = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["worker"]

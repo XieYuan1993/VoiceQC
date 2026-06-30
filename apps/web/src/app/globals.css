@@ -1,0 +1,102 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* ---------------------------------------------------------------------
+     Teal theme. Action color is a confident teal; chrome is a faint
+     teal-white in light mode and a deep teal-navy in dark mode. Status
+     colors (emerald/amber/red) stay semantic — conveyed via Tailwind
+     utility classes per-component, not via these vars.
+     --------------------------------------------------------------------- */
+  :root {
+    /* Faint teal-white — sits just below pure-white cards for a subtle lift. */
+    --background: 172 44% 99%;
+    --foreground: 190 30% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 190 30% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 190 30% 12%;
+
+    /* Confident teal. Used by Button default + ring + active nav accent. */
+    --primary: 168 78% 30%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Light teal surfaces for badges, hover states, secondary buttons. */
+    --secondary: 168 52% 94%;
+    --secondary-foreground: 168 80% 22%;
+
+    /* Near-neutral teal-grey for muted backgrounds (tabs, table headers). */
+    --muted: 172 24% 96%;
+    --muted-foreground: 195 12% 42%;
+
+    --accent: 168 48% 92%;
+    --accent-foreground: 168 80% 22%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 172 24% 90%;
+    --input: 172 24% 90%;
+    --ring: 168 78% 30%;
+
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    /* Deep teal-navy — bluish-green so it doesn't read as pure black. */
+    --background: 192 32% 8%;
+    --foreground: 168 25% 94%;
+
+    --card: 195 28% 11%;
+    --card-foreground: 168 25% 94%;
+    --popover: 195 28% 11%;
+    --popover-foreground: 168 25% 94%;
+
+    /* Brighter teal for contrast on dark surfaces. */
+    --primary: 166 64% 46%;
+    --primary-foreground: 190 40% 8%;
+
+    --secondary: 192 22% 17%;
+    --secondary-foreground: 168 25% 94%;
+
+    --muted: 195 20% 15%;
+    --muted-foreground: 175 14% 62%;
+
+    --accent: 192 22% 21%;
+    --accent-foreground: 168 25% 94%;
+
+    --destructive: 0 63% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 195 20% 18%;
+    --input: 195 20% 18%;
+    --ring: 166 64% 46%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    /* Faint teal wash from the top adds depth without competing with cards. */
+    background-image: radial-gradient(
+      ellipse 80% 50% at 50% -10%,
+      hsl(var(--primary) / 0.06),
+      transparent
+    );
+    background-attachment: fixed;
+  }
+}
+
+/* Keep cards readable on the gradient background with a subtle shadow. */
+@layer components {
+  .shadow-card {
+    box-shadow:
+      0 1px 2px 0 hsl(var(--foreground) / 0.04),
+      0 1px 3px 0 hsl(var(--foreground) / 0.06);
+  }
+}

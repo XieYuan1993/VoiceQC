@@ -1,0 +1,18 @@
+category,canonical,stock_code,aliases,notes
+stock,騰訊控股,700,騰訊|Tencent|tengxun|七百號|00700,
+stock,匯豐控股,5,匯豐|HSBC|五號仔|00005,
+stock,建設銀行,939,建行|CCB|九三九|00939,
+stock,小米集團,1810,小米|Xiaomi|一八一零|01810,
+stock,中國銀行,3988,中行|BOC|三九八八|03988,
+stock,友邦保險,1299,友邦|AIA|一二九九|01299,
+stock,中國平安,2318,平安|Ping An|二三一八|02318,
+stock,美團,3690,美團|Meituan|三六九零|03690,
+stock,工商銀行,1398,工行|ICBC|一三九八|01398,
+stock,盈富基金,2800,盈富|Tracker Fund|二八零零|02800,
+stock,中國移動,941,中移動|China Mobile|九四一|00941,
+jargon,市價盤,,market order|市價,Market order
+jargon,限價盤,,limit order|掛盤,Limit order
+jargon,沽出,,沽|賣出|sell,Sell instruction
+jargon,買入,,入貨|buy,Buy instruction
+jargon,分批成交,,split fill|partial fill,Order filled in multiple executions
+jargon,新股認購,,IPO|認購,IPO subscription

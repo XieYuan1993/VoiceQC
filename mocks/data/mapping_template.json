@@ -1,0 +1,30 @@
+{
+  "_comment": "Saved column-mapping template for the app's CSV TransactionSource (DESIGN.md §6). Matches the mock EOD export schema; when Quam shares their real export, only this template changes — no code.",
+  "name": "Quam EOD trades (mock schema v1)",
+  "kind": "csv",
+  "config": {
+    "encoding": "utf-8",
+    "header_row": 1,
+    "sheet_name": "EOD_TRADES",
+    "timezone": "Asia/Hong_Kong",
+    "date_format": "%Y-%m-%d %H:%M:%S",
+    "column_mapping": {
+      "ext_txn_id": "TRADE_REF",
+      "executed_at": "EXEC_TIME",
+      "ordered_at": "ORDER_TIME",
+      "broker_code": "AE_CODE",
+      "client_account": "ACCOUNT_NO",
+      "client_name": "CLIENT_NAME",
+      "stock_code": "STOCK_CODE",
+      "stock_name": "STOCK_NAME",
+      "side": "SIDE",
+      "quantity": "QTY",
+      "price": "PRICE",
+      "amount": "AMOUNT",
+      "channel": "ORDER_CHANNEL"
+    },
+    "side_values": { "buy": ["B", "BUY", "買入", "买入"], "sell": ["S", "SELL", "賣出", "卖出"] },
+    "channel_values": { "phone": ["PHONE"], "online": ["INTERNET", "MOBILE"] },
+    "status_filter": { "column": "STATUS", "include": ["FILLED"] }
+  }
+}

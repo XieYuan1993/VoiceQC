@@ -1,0 +1,8 @@
+# App-level safety net — the root .gitignore (owned by the API/infra setup)
+# is expected to cover these too.
+node_modules/
+.next/
+out/
+next-env.d.ts
+tsconfig.tsbuildinfo
+.env*.local

@@ -1,0 +1,25 @@
+# Keep the build context lean and secret-free.
+.git
+.gitignore
+**/node_modules
+**/.venv
+.venv
+**/.next
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.ruff_cache
+.mypy_cache
+celerybeat-schedule*
+# Never bake local env / secrets into the image.
+.env
+**/.env
+*.log
+# Service-account keys — injected via Render Secret Files at runtime.
+secrets/
+# Editor / agent scratch
+.claude
+.vscode
+.idea
+# Web build output (web deploys on Vercel, not in this image)
+apps/web/.next

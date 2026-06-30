@@ -1,0 +1,32 @@
+{
+  "name": "Quam Trade Summary export",
+  "kind": "csv",
+  "config": {
+    "header_row": 1,
+    "sheet_name": "Sheet1",
+    "timezone": "Asia/Hong_Kong",
+    "date_format": "%Y-%m-%d %H:%M:%S",
+    "collapse_by_ext_id": true,
+    "column_mapping": {
+      "trade_date": "Trade Date",
+      "ordered_at": "Create Time",
+      "ext_txn_id": "Order Id",
+      "client_name": "A/C Name",
+      "stock_code": "Stock",
+      "stock_name": "Stock Name",
+      "side": "B/S",
+      "price": "Price",
+      "quantity": "Qty",
+      "broker_code": "A/E Code",
+      "channel": "Channel"
+    },
+    "side_values": {
+      "buy": ["買入", "买入", "B", "BUY"],
+      "sell": ["賣出", "卖出", "S", "SELL"]
+    },
+    "channel_values": {
+      "phone": ["WTT", "PHONE"],
+      "online": ["INTERNET", "MOBILE", "WEB"]
+    }
+  }
+}

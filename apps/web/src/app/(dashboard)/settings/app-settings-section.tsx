@@ -1,0 +1,270 @@
+"use client";
+
+import { Loader2, Pencil } from "lucide-react";
+import * as React from "react";
+
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
+import { apiCall, getApiErrorMessage } from "@/lib/api";
+import { formatDateTime } from "@/lib/format";
+import type { AppSetting } from "@/lib/types";
+
+type ValueKind = "boolean" | "number" | "string" | "json";
+
+function kindOf(value: unknown): ValueKind {
+  if (typeof value === "boolean") return "boolean";
+  if (typeof value === "number") return "number";
+  if (typeof value === "string") return "string";
+  return "json";
+}
+
+function preview(value: unknown): string {
+  if (typeof value === "string") return value;
+  return JSON.stringify(value);
+}
+
+function SettingDialog({
+  setting,
+  projectId,
+  onClose,
+  onSaved,
+}: {
+  setting: AppSetting;
+  projectId?: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const kind = kindOf(setting.value);
+  const [text, setText] = React.useState(() => {
+    if (kind === "string") return setting.value as string;
+    if (kind === "number") return String(setting.value);
+    if (kind === "json") return JSON.stringify(setting.value, null, 2);
+    return "";
+  });
+  const [boolValue, setBoolValue] = React.useState(
+    kind === "boolean" ? (setting.value as boolean) : false,
+  );
+  const [error, setError] = React.useState<string | null>(null);
+  const [pending, setPending] = React.useState(false);
+
+  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    let next: unknown;
+    if (kind === "boolean") {
+      next = boolValue;
+    } else if (kind === "number") {
+      const n = Number(text.trim());
+      if (text.trim() === "" || !Number.isFinite(n)) {
+        setError("Value must be a number.");
+        return;
+      }
+      next = n;
+    } else if (kind === "string") {
+      next = text;
+    } else {
+      try {
+        next = JSON.parse(text);
+      } catch (err) {
+        setError(`Invalid JSON: ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
+    }
+    setPending(true);
+    setError(null);
+    try {
+      await apiCall("/api/settings/{key}", "put", {
+        params: { path: { key: setting.key }, query: { project_id: projectId || undefined } },
+        body: { value: next },
+      });
+      onSaved();
+    } catch (err) {
+      // 400s carry the validator message (e.g. "retention.days: must be an
+      // integer in [1, 3650]") — surface inline.
+      setError(getApiErrorMessage(err));
+      setPending(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="font-mono text-base">{setting.key}</DialogTitle>
+          <DialogDescription>
+            {kind === "json"
+              ? "JSON value — validated before saving."
+              : `${kind.charAt(0).toUpperCase()}${kind.slice(1)} value.`}
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={onSubmit} className="space-y-4">
+          {kind === "boolean" ? (
+            <div className="flex items-center gap-3">
+              <Switch id="setting-value" checked={boolValue} onCheckedChange={setBoolValue} />
+              <Label htmlFor="setting-value">{boolValue ? "Enabled" : "Disabled"}</Label>
+            </div>
+          ) : kind === "json" ? (
+            <div className="space-y-2">
+              <Label htmlFor="setting-value">Value (JSON)</Label>
+              <Textarea
+                id="setting-value"
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                rows={8}
+                className="font-mono text-xs"
+                spellCheck={false}
+              />
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <Label htmlFor="setting-value">Value</Label>
+              <Input
+                id="setting-value"
+                type={kind === "number" ? "number" : "text"}
+                step={kind === "number" ? "any" : undefined}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+              />
+            </div>
+          )}
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={pending}>
+              {pending && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />}
+              Save
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function AppSettingsSection({
+  canManage,
+  projectId,
+}: {
+  canManage: boolean;
+  projectId?: string;
+}) {
+  const [settings, setSettings] = React.useState<AppSetting[] | null>(null);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [editing, setEditing] = React.useState<AppSetting | null>(null);
+
+  const load = React.useCallback(async () => {
+    setSettings(null);
+    try {
+      const list = await apiCall("/api/settings", "get", {
+        params: { query: { project_id: projectId || undefined } },
+      });
+      setSettings(list);
+      setLoadError(null);
+    } catch (e) {
+      setLoadError(getApiErrorMessage(e));
+    }
+  }, [projectId]);
+
+  React.useEffect(() => {
+    void load();
+  }, [load]);
+
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader>
+        <CardTitle className="text-base">App settings</CardTitle>
+        <CardDescription>
+          Pipeline and budget configuration. Every key is validated server-side.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="p-0">
+        {loadError !== null ? (
+          <p className="px-6 pb-6 text-sm text-destructive">
+            Failed to load settings: {loadError}
+          </p>
+        ) : settings === null ? (
+          <p className="flex items-center gap-2 px-6 pb-6 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Loading…
+          </p>
+        ) : settings.length === 0 ? (
+          <p className="px-6 pb-6 text-sm text-muted-foreground">No settings found.</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead>Key</TableHead>
+                <TableHead>Value</TableHead>
+                <TableHead>Updated</TableHead>
+                {canManage && <TableHead className="text-right">Actions</TableHead>}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {settings.map((s) => (
+                <TableRow key={s.key}>
+                  <TableCell className="whitespace-nowrap font-mono text-xs">{s.key}</TableCell>
+                  <TableCell className="max-w-[420px]">
+                    <code
+                      className="block truncate rounded bg-muted/60 px-1.5 py-0.5 font-mono text-xs"
+                      title={preview(s.value)}
+                    >
+                      {preview(s.value)}
+                    </code>
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-muted-foreground">
+                    {formatDateTime(s.updated_at)}
+                  </TableCell>
+                  {canManage && (
+                    <TableCell className="text-right">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        aria-label={`Edit ${s.key}`}
+                        onClick={() => setEditing(s)}
+                      >
+                        <Pencil className="h-4 w-4" aria-hidden />
+                      </Button>
+                    </TableCell>
+                  )}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+
+      {editing !== null && (
+        <SettingDialog
+          setting={editing}
+          projectId={projectId}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            void load();
+          }}
+        />
+      )}
+    </Card>
+  );
+}

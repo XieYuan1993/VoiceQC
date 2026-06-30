@@ -1,0 +1,36 @@
+# env
+.env
+.env.local
+apps/*/.env
+apps/web/.env.local
+
+# service-account keys and local secrets — NEVER commit these
+secrets/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# node
+node_modules/
+.next/
+.turbo/
+*.tsbuildinfo
+
+# codegen intermediate
+openapi.json
+
+# celery beat runtime state
+celerybeat-schedule*
+*.pid
+
+# generated mock artifacts (regenerate via mocks/ scripts)
+mocks/recorder/recordings/
+mocks/data/eod_trades_*.csv
+mocks/data/eod_trades_*.xlsx
+
+# os
+.DS_Store

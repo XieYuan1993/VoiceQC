@@ -1,0 +1,137 @@
+# Render Blueprint — VoiceQA backend: API (web service) + Celery worker
+# (background) + managed Postgres + managed Redis (Key Value).
+# The Next.js web app deploys on Vercel separately — see DEPLOY-VERCEL.md.
+# Blueprint spec: https://render.com/docs/blueprint-spec
+#
+# After "New Blueprint Instance", finish in the dashboard:
+#   1) Add a Secret File named `gcp-sa.json` (your GCP service-account key) to
+#      BOTH voiceqa-api and voiceqa-worker — it mounts at /etc/secrets/gcp-sa.json.
+#   2) Fill every `sync: false` var (marked below).
+#   3) Copy the three generated secrets (NEXTAUTH_SECRET, INTERNAL_API_SECRET,
+#      APP_ENCRYPTION_KEY) into Vercel — they MUST be byte-identical across tiers.
+#   4) Run the one-off seed once (see DEPLOY-VERCEL.md §4).
+
+services:
+  - type: web
+    name: voiceqa-api
+    runtime: docker
+    dockerfilePath: ./infra/docker/Dockerfile
+    dockerContext: .
+    plan: free               # free: spins down after ~15m idle; bump to starter to stay warm
+    region: singapore        # near the GCS asia-east2 bucket + SG STT/Vertex
+    healthCheckPath: /api/healthz
+    # Migrations run via the worker's preDeployCommand below: a FREE instance
+    # can't run a preDeployCommand, so it lives on the (paid) worker instead.
+    dockerCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: voiceqa-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: voiceqa-redis
+          property: connectionString
+      - fromGroup: voiceqa-secrets
+      - key: GOOGLE_APPLICATION_CREDENTIALS
+        value: /etc/secrets/gcp-sa.json
+      - key: GOOGLE_STT_LOCATION
+        value: asia-southeast1
+      - key: VERTEX_LLM_LOCATION
+        value: asia-southeast1
+      - key: VERTEX_LLM_MODEL
+        value: gemini-3.5-flash
+      - key: LLM_PROVIDER
+        value: gemini
+      - key: LLM_FALLBACK_PROVIDER
+        value: dashscope
+      - key: DASHSCOPE_LLM_MODEL
+        value: qwen3.7-max
+      - key: NEXTAUTH_URL
+        sync: false          # https://<your-app>.vercel.app
+      - key: ALLOWED_ORIGINS
+        sync: false          # ["https://<your-app>.vercel.app"]
+      - key: GOOGLE_CLOUD_PROJECT
+        sync: false
+      - key: GCS_BUCKET_AUDIO
+        sync: false
+      - key: DASHSCOPE_API_KEY
+        sync: false
+      - key: DASHSCOPE_BASE_URL
+        sync: false
+
+  - type: worker
+    name: voiceqa-worker
+    runtime: docker
+    dockerfilePath: ./infra/docker/Dockerfile
+    dockerContext: .
+    plan: starter
+    region: singapore
+    # One worker process with embedded beat (-B). Keep exactly ONE beat: if you
+    # scale to >1 instance, drop -B here and add a separate 1-instance beat svc.
+    # Migrations run at container startup (on the private network); alembic is
+    # idempotent. concurrency=1 (not 2) to fit the 512MB Starter — the Vertex/GCS/
+    # ASR client imports are memory-heavy and 2 prefork workers OOM'd. `exec`
+    # hands PID 1 to celery for clean signal handling.
+    dockerCommand: "cd /app/infra/migrations && alembic upgrade head && cd /app && exec celery -A worker.celery_app worker -B -Q default,audio,stt,llm --loglevel=info --concurrency=1"
+    envVars:
+      - key: ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: voiceqa-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: voiceqa-redis
+          property: connectionString
+      - fromGroup: voiceqa-secrets
+      - key: GOOGLE_APPLICATION_CREDENTIALS
+        value: /etc/secrets/gcp-sa.json
+      - key: GOOGLE_STT_LOCATION
+        value: asia-southeast1
+      - key: VERTEX_LLM_LOCATION
+        value: asia-southeast1
+      - key: VERTEX_LLM_MODEL
+        value: gemini-3.5-flash
+      - key: LLM_PROVIDER
+        value: gemini
+      - key: LLM_FALLBACK_PROVIDER
+        value: dashscope
+      - key: DASHSCOPE_LLM_MODEL
+        value: qwen3.7-max
+      - key: GOOGLE_CLOUD_PROJECT
+        sync: false
+      - key: GCS_BUCKET_AUDIO
+        sync: false
+      - key: DASHSCOPE_API_KEY
+        sync: false
+      - key: DASHSCOPE_BASE_URL
+        sync: false
+
+  - type: redis
+    name: voiceqa-redis
+    plan: free               # Celery broker/result + rate-limit store (free = 25 MB)
+    region: singapore
+    ipAllowList: []          # internal services only — no public access
+
+databases:
+  - name: voiceqa-db
+    plan: free               # FREE tier — DELETED after 30 days; upgrade before then to keep data
+    region: singapore
+    postgresMajorVersion: "16"
+
+envVarGroups:
+  - name: voiceqa-secrets
+    envVars:
+      # Generated once, shared by api + worker. COPY ALL THREE INTO VERCEL too.
+      - key: NEXTAUTH_SECRET
+        generateValue: true
+      - key: INTERNAL_API_SECRET
+        generateValue: true
+      - key: APP_ENCRYPTION_KEY
+        generateValue: true
