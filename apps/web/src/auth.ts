@@ -14,9 +14,13 @@ import { pool } from "@/lib/db";
 
 // Server-side base URL for the FastAPI backend. Inside compose the API sits
 // on a different host than the browser-facing NEXT_PUBLIC_API_URL, hence the
-// API_URL override.
+// override. BACKEND_API_URL is the canonical prod var (see lib/api.ts +
+// next.config.mjs); accept API_URL too for back-compat.
 const API_URL =
-  process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:7870";
+  process.env.API_URL ??
+  process.env.BACKEND_API_URL ??
+  process.env.NEXT_PUBLIC_API_URL ??
+  "http://localhost:7870";
 
 // Stable provider id — must match the button on the login page
 // (`signIn("microsoft-entra-id")`) and the `account.provider` check below.
