@@ -26,7 +26,8 @@ WORKDIR /app
 # deps), leaving fastapi/celery/app/worker uninstalled. .dockerignore keeps
 # node_modules, .venv, .git and secrets out of the context.
 COPY . .
-RUN uv sync --frozen --all-packages
+RUN uv sync --frozen --all-packages \
+    && chmod +x /app/infra/docker/start-worker.sh
 
 # Put the venv's console scripts (uvicorn, celery, alembic) on PATH.
 ENV PATH="/app/.venv/bin:$PATH"

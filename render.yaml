@@ -76,7 +76,7 @@ services:
     # idempotent. concurrency=1 (not 2) to fit the 512MB Starter — the Vertex/GCS/
     # ASR client imports are memory-heavy and 2 prefork workers OOM'd. `exec`
     # hands PID 1 to celery for clean signal handling.
-    dockerCommand: "cd /app/infra/migrations && alembic upgrade head && cd /app && exec celery -A worker.celery_app worker -B -Q default,audio,stt,llm --loglevel=info --concurrency=1"
+    dockerCommand: "/app/infra/docker/start-worker.sh"
     envVars:
       - key: ENV
         value: production
