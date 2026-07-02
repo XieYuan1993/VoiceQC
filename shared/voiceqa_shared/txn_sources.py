@@ -71,6 +71,15 @@ def _to_number(value: Any) -> float | None:
         return None
 
 
+def _clean_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    while len(text) >= 2 and text[0] == text[-1] and text[0] in {"'", '"'}:
+        text = text[1:-1].strip()
+    return text or None
+
+
 def _parse_dt(value: Any, fmt: str, tz: ZoneInfo) -> datetime | None:
     if value is None or value == "":
         return None
@@ -140,15 +149,15 @@ def canonicalize(values: dict[str, Any], config: dict[str, Any]) -> CanonicalTxn
         return txn
     txn.side = side
 
-    txn.ext_txn_id = str(values.get("ext_txn_id") or "").strip() or None
+    txn.ext_txn_id = _clean_text(values.get("ext_txn_id"))
     txn.trade_date = _parse_date(values.get("trade_date"))
     txn.ordered_at = _parse_dt(values.get("ordered_at"), fmt, tz)
     txn.executed_at = _parse_dt(values.get("executed_at"), fmt, tz)
-    txn.broker_code = str(values.get("broker_code") or "").strip() or None
-    txn.client_account = str(values.get("client_account") or "").strip() or None
-    txn.client_name = str(values.get("client_name") or "").strip() or None
+    txn.broker_code = _clean_text(values.get("broker_code"))
+    txn.client_account = _clean_text(values.get("client_account"))
+    txn.client_name = _clean_text(values.get("client_name"))
     txn.stock_code = _norm_stock_code(values.get("stock_code"))
-    txn.stock_name = str(values.get("stock_name") or "").strip() or None
+    txn.stock_name = _clean_text(values.get("stock_name"))
     txn.quantity = _to_number(values.get("quantity"))
     txn.price = _to_number(values.get("price"))
     txn.amount = _to_number(values.get("amount"))
@@ -181,8 +190,9 @@ def _rows_to_txns(
     # Some exports emit one row per partial fill of the same order; collapse them
     # to the first row per external id so one order becomes one transaction.
     collapse = bool(config.get("collapse_by_ext_id"))
+    suffix_duplicate_ext_id = bool(config.get("suffix_duplicate_ext_id"))
     out: list[CanonicalTxn] = []
-    seen_refs: set[str] = set()
+    seen_refs: dict[str, int] = {}
     for row in rows:
         values = _extract(row, column_mapping)
         if status_column:
@@ -192,7 +202,11 @@ def _rows_to_txns(
             if txn.ext_txn_id in seen_refs:
                 txn.skip_reason = "duplicate"
             else:
-                seen_refs.add(txn.ext_txn_id)
+                seen_refs[txn.ext_txn_id] = 1
+        elif suffix_duplicate_ext_id and txn.skip_reason is None and txn.ext_txn_id:
+            seen_refs[txn.ext_txn_id] = seen_refs.get(txn.ext_txn_id, 0) + 1
+            if seen_refs[txn.ext_txn_id] > 1:
+                txn.ext_txn_id = f"{txn.ext_txn_id}-{seen_refs[txn.ext_txn_id]}"
         out.append(txn)
     return out
 
