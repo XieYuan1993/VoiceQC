@@ -122,6 +122,8 @@ VALIDATORS: dict[str, Any] = {
     "asr.model": _v_nonempty_str,
     "asr.adaptation": _v_adaptation,
     "asr.adaptation_boost": _v_boost,
+    "asr.mono_speaker_repair": _v_bool,
+    "asr.mono_speaker_repair_model": _v_nonempty_str,
     "llm.model": _v_nonempty_str,
     "audio.broker_channel": _v_broker_channel,
     "filename.parse_regex": _v_filename_regex,

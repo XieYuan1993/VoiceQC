@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import {
   Table,
@@ -53,6 +54,25 @@ const EXECUTION_TYPE_OPTIONS = [
   "CanceledExec",
 ];
 
+const SELECT_OPTIONS: Record<string, Array<{ value: string; label: string }>> = {
+  "asr.provider": [
+    { value: "qwen", label: "Qwen ASR" },
+    { value: "gemini", label: "Gemini audio" },
+    { value: "google", label: "Google STT" },
+  ],
+  "asr.language_mode": [
+    { value: "auto", label: "Auto" },
+    { value: "yue-Hant-HK", label: "Cantonese (HK Traditional)" },
+    { value: "cmn-Hans-CN", label: "Mandarin (Simplified)" },
+    { value: "en-US", label: "English (US)" },
+  ],
+  "asr.adaptation": [
+    { value: "off", label: "Off" },
+    { value: "stock_only", label: "Stock terms only" },
+    { value: "all", label: "All glossary terms" },
+  ],
+};
+
 function kindOf(value: unknown): ValueKind {
   if (typeof value === "boolean") return "boolean";
   if (typeof value === "number") return "number";
@@ -78,6 +98,7 @@ function SettingDialog({
 }) {
   const kind = kindOf(setting.value);
   const isReconFilters = setting.key === "recon.transaction_filters";
+  const selectOptions = SELECT_OPTIONS[setting.key];
   const filterValue =
     setting.value !== null && typeof setting.value === "object"
       ? (setting.value as { order_statuses?: unknown; execution_types?: unknown })
@@ -107,7 +128,9 @@ function SettingDialog({
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     let next: unknown;
-    if (isReconFilters) {
+    if (selectOptions) {
+      next = text;
+    } else if (isReconFilters) {
       next = {
         order_statuses: orderStatuses,
         execution_types: executionTypes,
@@ -163,7 +186,22 @@ function SettingDialog({
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={onSubmit} className="space-y-4">
-          {isReconFilters ? (
+          {selectOptions ? (
+            <div className="space-y-2">
+              <Label htmlFor="setting-value">Value</Label>
+              <Select
+                id="setting-value"
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+              >
+                {selectOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          ) : isReconFilters ? (
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>訂單狀態</Label>

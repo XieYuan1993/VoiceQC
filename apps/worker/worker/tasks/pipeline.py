@@ -35,6 +35,7 @@ from worker.asr import factory
 from worker.asr.base import AdaptationPhrase, ChannelFile
 from worker.celery_app import app
 from worker.db import SessionLocal, get_setting
+from worker.mono_speaker_repair import repair_mono_transcript
 from worker.settings import settings
 
 _STAGE_BY_STATUS = {
@@ -349,6 +350,17 @@ def transcribe(self, recording_id: str) -> None:
         for role, start_ms, text in _interleave_turns(segments):
             mm, ss = divmod(start_ms // 1000, 60)
             lines.append(f"[{mm:02d}:{ss:02d}] {role}: {_spoken_digits_to_arabic(text)}")
+        full_text = "\n".join(lines)
+
+        is_mono_mixed = bool(rec.gcs_uri_mono and not rec.gcs_uri_broker and not rec.gcs_uri_customer)
+        if is_mono_mixed and get_setting(session, project_id, "asr.mono_speaker_repair", True):
+            repair_model = get_setting(
+                session,
+                project_id,
+                "asr.mono_speaker_repair_model",
+                get_setting(session, project_id, "llm.model", settings.VERTEX_LLM_MODEL),
+            )
+            full_text = repair_mono_transcript(full_text, model=repair_model, session=session)
 
         # Replace any prior transcript (reprocess path).
         old = session.execute(
@@ -361,7 +373,7 @@ def transcribe(self, recording_id: str) -> None:
             recording_id=rec.id,
             stt_model=model,
             language_detected=max(languages, key=languages.get) if languages else None,
-            full_text="\n".join(lines),
+            full_text=full_text,
             billed_seconds=round(billed, 2),
         )
         session.add(transcript)

@@ -221,6 +221,8 @@ DEFAULT_SETTINGS: dict[str, object] = {
     # prompt hint); on chirp use with care (high boost degrades output).
     "asr.adaptation": "stock_only",
     "asr.adaptation_boost": 5,
+    "asr.mono_speaker_repair": True,
+    "asr.mono_speaker_repair_model": "gemini-3.5-flash",
     "llm.model": "gemini-3.5-flash",
     # Matches the mock recorder convention (mocks/README.md, contract 3).
     "filename.parse_regex": (
