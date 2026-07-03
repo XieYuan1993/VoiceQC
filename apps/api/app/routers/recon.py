@@ -66,7 +66,13 @@ def _run_out(r: ReconRun) -> ReconRunOut:
     )
 
 
-async def build_recon_run(session, project_id, trade_date, started_by=None) -> ReconRun:
+async def build_recon_run(
+    session,
+    project_id,
+    trade_date,
+    started_by=None,
+    transaction_filters: dict | None = None,
+) -> ReconRun:
     """Create (flush, not commit/queue) a recon run snapshotting the project's
     saved recon params. Caller commits and queues. Shared by create_run and the
     delete-import re-reconcile path."""
@@ -85,7 +91,9 @@ async def build_recon_run(session, project_id, trade_date, started_by=None) -> R
         "thresholds": settings_rows.get("recon.thresholds"),
         "time_window": settings_rows.get("recon.time_window"),
         "phone_only": settings_rows.get("recon.phone_only", True),
-        "transaction_filters": settings_rows.get("recon.transaction_filters"),
+        "transaction_filters": transaction_filters
+        if transaction_filters is not None
+        else settings_rows.get("recon.transaction_filters"),
     }
     run = ReconRun(trade_date=trade_date, params_snapshot=snapshot, started_by=started_by)
     session.add(run)
@@ -101,11 +109,22 @@ async def create_run(
     session: AsyncSession = Depends(get_session),
     meta: ClientMeta = Depends(client_meta),
 ) -> ReconRunOut:
-    run = await build_recon_run(session, project_id, payload.trade_date, user.id)
+    run = await build_recon_run(
+        session,
+        project_id,
+        payload.trade_date,
+        user.id,
+        payload.transaction_filters.model_dump() if payload.transaction_filters else None,
+    )
     log_audit(
         session, action="recon.run", user_id=user.id, actor_email=user.email,
         object_type="recon_run", object_id=str(run.id),
-        details={"trade_date": str(payload.trade_date)}, ip=meta.ip, user_agent=meta.user_agent,
+        details={
+            "trade_date": str(payload.trade_date),
+            "transaction_filters": run.params_snapshot.get("transaction_filters"),
+        },
+        ip=meta.ip,
+        user_agent=meta.user_agent,
     )
     await session.commit()
     queue.send("voiceqa.recon.run", str(run.id))

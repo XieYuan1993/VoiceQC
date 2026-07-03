@@ -556,8 +556,14 @@ class SkippedRowOut(BaseModel):
     raw: dict[str, str]
 
 
+class ReconTransactionFilters(BaseModel):
+    order_statuses: list[str]
+    execution_types: list[str]
+
+
 class ReconRunCreate(BaseModel):
     trade_date: date
+    transaction_filters: ReconTransactionFilters | None = None
 
 
 class ReconRunOut(BaseModel):
