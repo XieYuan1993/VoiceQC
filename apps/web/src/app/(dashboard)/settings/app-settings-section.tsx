@@ -31,6 +31,28 @@ import type { AppSetting } from "@/lib/types";
 
 type ValueKind = "boolean" | "number" | "string" | "json";
 
+const ORDER_STATUS_OPTIONS = [
+  "已委託",
+  "成交",
+  "部分成交",
+  "已過期",
+  "待報",
+  "已撤單",
+  "待報（保價）",
+  "已修改",
+  "待報（條件單）",
+  "已拒絕",
+];
+
+const EXECUTION_TYPE_OPTIONS = [
+  "",
+  "TradeExec",
+  "NewExec",
+  "ExpiredExec",
+  "ReplaceExec",
+  "CanceledExec",
+];
+
 function kindOf(value: unknown): ValueKind {
   if (typeof value === "boolean") return "boolean";
   if (typeof value === "number") return "number";
@@ -55,6 +77,21 @@ function SettingDialog({
   onSaved: () => void;
 }) {
   const kind = kindOf(setting.value);
+  const isReconFilters = setting.key === "recon.transaction_filters";
+  const filterValue =
+    setting.value !== null && typeof setting.value === "object"
+      ? (setting.value as { order_statuses?: unknown; execution_types?: unknown })
+      : {};
+  const [orderStatuses, setOrderStatuses] = React.useState<string[]>(() =>
+    Array.isArray(filterValue.order_statuses)
+      ? filterValue.order_statuses.filter((x): x is string => typeof x === "string")
+      : ORDER_STATUS_OPTIONS,
+  );
+  const [executionTypes, setExecutionTypes] = React.useState<string[]>(() =>
+    Array.isArray(filterValue.execution_types)
+      ? filterValue.execution_types.filter((x): x is string => typeof x === "string")
+      : EXECUTION_TYPE_OPTIONS,
+  );
   const [text, setText] = React.useState(() => {
     if (kind === "string") return setting.value as string;
     if (kind === "number") return String(setting.value);
@@ -70,7 +107,12 @@ function SettingDialog({
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     let next: unknown;
-    if (kind === "boolean") {
+    if (isReconFilters) {
+      next = {
+        order_statuses: orderStatuses,
+        execution_types: executionTypes,
+      };
+    } else if (kind === "boolean") {
       next = boolValue;
     } else if (kind === "number") {
       const n = Number(text.trim());
@@ -105,6 +147,10 @@ function SettingDialog({
     }
   }
 
+  function toggleValue(values: string[], value: string, setter: (next: string[]) => void) {
+    setter(values.includes(value) ? values.filter((v) => v !== value) : [...values, value]);
+  }
+
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
@@ -117,7 +163,42 @@ function SettingDialog({
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={onSubmit} className="space-y-4">
-          {kind === "boolean" ? (
+          {isReconFilters ? (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>訂單狀態</Label>
+                <div className="max-h-56 space-y-1.5 overflow-auto rounded-md border p-3">
+                  {ORDER_STATUS_OPTIONS.map((value) => (
+                    <label key={value} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={orderStatuses.includes(value)}
+                        onChange={() => toggleValue(orderStatuses, value, setOrderStatuses)}
+                        className="h-4 w-4 rounded border-input"
+                      />
+                      <span>{value}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>執行類型</Label>
+                <div className="max-h-56 space-y-1.5 overflow-auto rounded-md border p-3">
+                  {EXECUTION_TYPE_OPTIONS.map((value) => (
+                    <label key={value || "__blank"} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={executionTypes.includes(value)}
+                        onChange={() => toggleValue(executionTypes, value, setExecutionTypes)}
+                        className="h-4 w-4 rounded border-input"
+                      />
+                      <span>{value || "(blank)"}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : kind === "boolean" ? (
             <div className="flex items-center gap-3">
               <Switch id="setting-value" checked={boolValue} onCheckedChange={setBoolValue} />
               <Label htmlFor="setting-value">{boolValue ? "Enabled" : "Disabled"}</Label>

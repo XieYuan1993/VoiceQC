@@ -19,6 +19,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from worker.recon.engine import InstrView, Params, TxnView, fold, run_match
+from worker.tasks.recon import _passes_transaction_filters
 
 HK = ZoneInfo("Asia/Hong_Kong")
 D = "2026-06-11"
@@ -155,3 +156,30 @@ def test_side_mismatch_disqualifies():
         alias_map=ALIAS_MAP, broker_extensions=BROKER_EXTENSIONS,
     )
     assert not [m for m in result.matched if m.txn_id == "T1"]
+
+
+def test_transaction_filters_use_imported_order_metadata():
+    class Txn:
+        raw = {"order_status": "已委託", "execution_type": "NewExec"}
+
+    assert _passes_transaction_filters(
+        Txn(),
+        {
+            "order_statuses": ["已委託", "成交"],
+            "execution_types": ["NewExec", "TradeExec"],
+        },
+    )
+    assert not _passes_transaction_filters(
+        Txn(),
+        {
+            "order_statuses": ["成交"],
+            "execution_types": ["NewExec", "TradeExec"],
+        },
+    )
+    assert not _passes_transaction_filters(
+        Txn(),
+        {
+            "order_statuses": ["已委託", "成交"],
+            "execution_types": ["TradeExec"],
+        },
+    )

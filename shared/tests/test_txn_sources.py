@@ -4,7 +4,7 @@ from pathlib import Path
 from voiceqa_shared.txn_sources import parse_file
 
 
-def test_quam_client_history_order_report_mapping() -> None:
+def test_quam_client_history_order_report_imports_all_parseable_rows() -> None:
     config = json.loads(
         Path("mocks/data/mapping_template_quam.json").read_text(encoding="utf-8")
     )["config"]
@@ -20,16 +20,18 @@ def test_quam_client_history_order_report_mapping() -> None:
     txns = parse_file("orders.csv", csv_data, config)
     imported = [t for t in txns if t.skip_reason is None]
 
-    assert len(imported) == 2
-    assert imported[0].ext_txn_id == "123"
-    assert imported[1].ext_txn_id == "123-2"
+    assert len(imported) == 3
+    assert [t.ext_txn_id for t in imported] == ["123", "123-2", "123-3"]
     assert imported[0].trade_date.isoformat() == "2026-05-13"
     assert imported[0].broker_code == "QUAMIBIS022"
     assert imported[0].client_account == "213116"
     assert imported[0].stock_code == "1801"
     assert imported[0].stock_name == "信達生物"
     assert imported[0].side == "sell"
-    assert imported[0].quantity == 500
-    assert imported[0].amount == 48250
+    assert imported[0].quantity == 0
+    assert imported[0].amount == 0
     assert imported[0].channel == "phone"
-    assert txns[0].skip_reason == "status"
+    assert imported[0].raw["order_status"] == "已委託"
+    assert imported[0].raw["execution_type"] == "NewExec"
+    assert imported[1].raw["order_status"] == "部分成交"
+    assert imported[1].raw["execution_type"] == "TradeExec"

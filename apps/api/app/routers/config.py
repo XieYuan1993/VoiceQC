@@ -92,6 +92,15 @@ def _v_time_window(v: Any) -> None:
         raise ValueError("needs non-negative integers {before_hours, after_minutes}")
 
 
+def _v_recon_transaction_filters(v: Any) -> None:
+    if not isinstance(v, dict) or set(v) != {"order_statuses", "execution_types"}:
+        raise ValueError("needs {order_statuses, execution_types}")
+    for key in ("order_statuses", "execution_types"):
+        values = v.get(key)
+        if not isinstance(values, list) or not all(isinstance(x, str) for x in values):
+            raise ValueError(f"{key}: must be a list of strings")
+
+
 def _v_provider(v: Any) -> None:
     if v not in ("google", "gemini", "qwen"):
         raise ValueError("must be 'google' (chirp STT), 'gemini' (multimodal), or 'qwen' (Qwen3-ASR)")
@@ -123,6 +132,7 @@ VALIDATORS: dict[str, Any] = {
     "recon.thresholds": _v_recon_thresholds,
     "recon.time_window": _v_time_window,
     "recon.phone_only": _v_bool,
+    "recon.transaction_filters": _v_recon_transaction_filters,
 }
 
 

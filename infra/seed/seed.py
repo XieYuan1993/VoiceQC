@@ -239,6 +239,28 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "recon.thresholds": {"auto_match": 0.75, "needs_review": 0.45},
     "recon.time_window": {"before_hours": 6, "after_minutes": 15},
     "recon.phone_only": True,
+    "recon.transaction_filters": {
+        "order_statuses": [
+            "已委託",
+            "成交",
+            "部分成交",
+            "已過期",
+            "待報",
+            "已撤單",
+            "待報（保價）",
+            "已修改",
+            "待報（條件單）",
+            "已拒絕",
+        ],
+        "execution_types": [
+            "",
+            "TradeExec",
+            "NewExec",
+            "ExpiredExec",
+            "ReplaceExec",
+            "CanceledExec",
+        ],
+    },
     "budget.llm_daily_tokens": 10_000_000,
     "budget.stt_daily_seconds": 180_000,
 }

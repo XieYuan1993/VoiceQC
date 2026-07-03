@@ -44,7 +44,13 @@ router = APIRouter(
     dependencies=[Depends(require_project_module("trade_reconciliation"))],
 )
 
-PARAM_KEYS = ("recon.weights", "recon.thresholds", "recon.time_window", "recon.phone_only")
+PARAM_KEYS = (
+    "recon.weights",
+    "recon.thresholds",
+    "recon.time_window",
+    "recon.phone_only",
+    "recon.transaction_filters",
+)
 
 
 def _run_out(r: ReconRun) -> ReconRunOut:
@@ -79,6 +85,7 @@ async def build_recon_run(session, project_id, trade_date, started_by=None) -> R
         "thresholds": settings_rows.get("recon.thresholds"),
         "time_window": settings_rows.get("recon.time_window"),
         "phone_only": settings_rows.get("recon.phone_only", True),
+        "transaction_filters": settings_rows.get("recon.transaction_filters"),
     }
     run = ReconRun(trade_date=trade_date, params_snapshot=snapshot, started_by=started_by)
     session.add(run)

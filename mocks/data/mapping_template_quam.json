@@ -22,7 +22,9 @@
       "quantity": "成交數量",
       "amount": "成交金額",
       "broker_code": "經紀人編號",
-      "channel": "委託渠道"
+      "channel": "委託渠道",
+      "order_status": "訂單狀態",
+      "execution_type": "執行類型"
     },
     "side_values": {
       "buy": ["買入", "B", "BUY"],
@@ -31,10 +33,6 @@
     "channel_values": {
       "phone": ["WTT", "PHONE"],
       "online": ["INTERNET", "MOBILE", "WEB", "網上", "手機"]
-    },
-    "status_filter": {
-      "column": "執行類型",
-      "include": ["TradeExec"]
     }
   }
 }

@@ -34,7 +34,13 @@ from worker.recon.engine import InstrView, Params, TxnView
 
 HK = ZoneInfo("Asia/Hong_Kong")
 
-_RECON_PARAM_KEYS = ("recon.weights", "recon.thresholds", "recon.time_window", "recon.phone_only")
+_RECON_PARAM_KEYS = (
+    "recon.weights",
+    "recon.thresholds",
+    "recon.time_window",
+    "recon.phone_only",
+    "recon.transaction_filters",
+)
 
 
 def enqueue_recon_run(session, trade_date) -> str | None:
@@ -64,6 +70,7 @@ def enqueue_recon_run(session, trade_date) -> str | None:
         "thresholds": rows.get("recon.thresholds"),
         "time_window": rows.get("recon.time_window"),
         "phone_only": rows.get("recon.phone_only", True),
+        "transaction_filters": rows.get("recon.transaction_filters"),
     }
     run = ReconRun(trade_date=trade_date, params_snapshot=snapshot)
     session.add(run)
@@ -88,7 +95,30 @@ def _params_from_snapshot(snapshot: dict) -> Params:
     )
 
 
-def _load_views(session, trade_date) -> tuple[list[TxnView], list[InstrView], list[str]]:
+def _raw_value(raw, key: str) -> str:
+    if not isinstance(raw, dict):
+        return ""
+    value = raw.get(key)
+    return str(value).strip() if value is not None else ""
+
+
+def _passes_transaction_filters(txn: Transaction, filters: dict | None) -> bool:
+    if not isinstance(filters, dict):
+        return True
+    order_statuses = filters.get("order_statuses")
+    execution_types = filters.get("execution_types")
+    if isinstance(order_statuses, list):
+        if _raw_value(txn.raw, "order_status") not in {str(v) for v in order_statuses}:
+            return False
+    if isinstance(execution_types, list):
+        if _raw_value(txn.raw, "execution_type") not in {str(v) for v in execution_types}:
+            return False
+    return True
+
+
+def _load_views(
+    session, trade_date, transaction_filters: dict | None = None
+) -> tuple[list[TxnView], list[InstrView], list[str]]:
     txns = [
         TxnView(
             id=str(t.id),
@@ -106,6 +136,7 @@ def _load_views(session, trade_date) -> tuple[list[TxnView], list[InstrView], li
         for t in session.execute(
             select(Transaction).where(Transaction.trade_date == trade_date)
         ).scalars()
+        if _passes_transaction_filters(t, transaction_filters)
     ]
 
     day_start = datetime.combine(trade_date, time.min, tzinfo=HK)
@@ -230,7 +261,11 @@ def run(self, run_id: str) -> None:
             return
         try:
             params = _params_from_snapshot(recon_run.params_snapshot)
-            txns, instrs, zero_instr = _load_views(session, recon_run.trade_date)
+            txns, instrs, zero_instr = _load_views(
+                session,
+                recon_run.trade_date,
+                (recon_run.params_snapshot or {}).get("transaction_filters"),
+            )
 
             brokers = session.execute(select(Broker)).scalars().all()
             broker_extensions = {b.code: set(b.phone_extensions or []) for b in brokers}
