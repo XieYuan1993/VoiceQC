@@ -91,6 +91,30 @@ class UploadFileResult(BaseModel):
     size_bytes: int
 
 
+class DirectUploadInit(BaseModel):
+    filename: str = Field(min_length=1, max_length=500)
+    size_bytes: int = Field(ge=1)
+    content_type: str | None = Field(default=None, max_length=200)
+
+
+class DirectUploadInitOut(BaseModel):
+    upload_id: str
+    upload_url: str
+    method: str = "PUT"
+    headers: dict[str, str]
+    expires_in_seconds: int
+    filename: str
+    kind: str
+    size_bytes: int
+
+
+class DirectUploadComplete(BaseModel):
+    upload_id: str = Field(min_length=1, max_length=2000)
+    filename: str = Field(min_length=1, max_length=500)
+    size_bytes: int = Field(ge=1)
+    sha256: str | None = Field(default=None, pattern="^[a-fA-F0-9]{64}$")
+
+
 class RetryResult(BaseModel):
     retried: int
 

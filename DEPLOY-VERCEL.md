@@ -87,6 +87,29 @@ ones, and change the admin password after first login.
    - `ALLOWED_ORIGINS = ["https://<your-vercel-domain>"]`
 2. Make sure Vercel's `NEXTAUTH_URL` is that same domain; redeploy the web if changed.
 
+### GCS direct-upload CORS
+
+Recording uploads use signed GCS `PUT` URLs so large audio/ZIP files bypass the
+Vercel `/api/*` body-size limit. Configure CORS on the audio bucket for your web
+origin before testing uploads:
+
+```json
+[
+  {
+    "origin": ["https://<your-vercel-domain>"],
+    "method": ["PUT"],
+    "responseHeader": ["Content-Type"],
+    "maxAgeSeconds": 3600
+  }
+]
+```
+
+Apply it with:
+
+```bash
+gcloud storage buckets update gs://<your-audio-bucket> --cors-file=cors.json
+```
+
 ## 5. Verify
 
 - Open `https://<vercel-domain>` → sign in.

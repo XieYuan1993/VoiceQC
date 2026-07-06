@@ -1,0 +1,8 @@
+[
+  {
+    "origin": ["https://voice-qc-web.vercel.app"],
+    "method": ["PUT"],
+    "responseHeader": ["Content-Type", "ETag"],
+    "maxAgeSeconds": 3600
+  }
+]

@@ -133,6 +133,17 @@ export interface UploadOptions {
   fields?: Record<string, string>;
 }
 
+interface DirectUploadInitResponse {
+  upload_id: string;
+  upload_url: string;
+  method: "PUT";
+  headers: Record<string, string>;
+  expires_in_seconds: number;
+  filename: string;
+  kind: "audio" | "zip";
+  size_bytes: number;
+}
+
 /**
  * Multipart POST (single field named `file`) via XHR — fetch() has no upload
  * progress events. Browser-only. Cookies ride along via withCredentials,
@@ -185,4 +196,114 @@ export function uploadMultipart<T>(
     form.append("file", file);
     xhr.send(form);
   });
+}
+
+async function parseResponseBody(res: Response): Promise<unknown> {
+  const text = await res.text();
+  if (!text) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+async function sha256Hex(file: File): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function putSignedUrl(
+  url: string,
+  file: File,
+  headers: Record<string, string>,
+  opts: UploadOptions,
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    for (const [key, value] of Object.entries(headers)) xhr.setRequestHeader(key, value);
+
+    if (opts.onProgress) {
+      xhr.upload.onprogress = (ev) => {
+        if (ev.lengthComputable && ev.total > 0) {
+          opts.onProgress!(Math.min(0.95, (ev.loaded / ev.total) * 0.95));
+        }
+      };
+    }
+
+    const onAbort = () => xhr.abort();
+    opts.signal?.addEventListener("abort", onAbort);
+
+    xhr.onload = () => {
+      opts.signal?.removeEventListener("abort", onAbort);
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
+      } else {
+        reject(new ApiError(xhr.status, xhr.responseText, `Direct upload failed (HTTP ${xhr.status})`));
+      }
+    };
+    xhr.onerror = () => {
+      opts.signal?.removeEventListener("abort", onAbort);
+      reject(new ApiError(0, null, "Network error during direct upload"));
+    };
+    xhr.onabort = () => {
+      opts.signal?.removeEventListener("abort", onAbort);
+      reject(new ApiError(0, null, "Upload cancelled"));
+    };
+
+    xhr.send(file);
+  });
+}
+
+/**
+ * Large-file upload path: ask the API for a GCS signed PUT URL, upload the
+ * bytes directly to object storage, then notify the API with a small JSON
+ * completion request. This avoids Vercel's request-body limit.
+ */
+export async function uploadDirectToStorage<T>(
+  path: string,
+  file: File,
+  opts: UploadOptions = {},
+): Promise<T> {
+  const contentType = file.type || "application/octet-stream";
+  const initRes = await fetch(`${API_URL}${path}/direct-upload`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      filename: file.name,
+      size_bytes: file.size,
+      content_type: contentType,
+    }),
+    credentials: "include",
+    signal: opts.signal,
+    cache: "no-store",
+  });
+  const initBody = await parseResponseBody(initRes);
+  if (!initRes.ok) throw new ApiError(initRes.status, initBody);
+  const init = initBody as DirectUploadInitResponse;
+
+  const shaPromise = init.kind === "audio" ? sha256Hex(file) : Promise.resolve<string | null>(null);
+  await putSignedUrl(init.upload_url, file, init.headers, opts);
+  const sha = await shaPromise;
+
+  const completeRes = await fetch(`${API_URL}${path}/direct-upload/complete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      upload_id: init.upload_id,
+      filename: file.name,
+      size_bytes: file.size,
+      sha256: sha,
+    }),
+    credentials: "include",
+    signal: opts.signal,
+    cache: "no-store",
+  });
+  const completeBody = await parseResponseBody(completeRes);
+  if (!completeRes.ok) throw new ApiError(completeRes.status, completeBody);
+  opts.onProgress?.(1);
+  return completeBody as T;
 }

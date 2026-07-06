@@ -127,3 +127,22 @@ def signed_url(uri: str, minutes: int = 10) -> str | None:
         )
     except Exception:
         return None
+
+
+def signed_put_url(
+    key: str,
+    content_type: str,
+    minutes: int = 15,
+) -> str | None:
+    """V4 signed PUT URL for browser direct uploads, or None when the
+    credentials can't sign (user ADC without a private key).
+    """
+    try:
+        return bucket().blob(key).generate_signed_url(
+            version="v4",
+            expiration=datetime.timedelta(minutes=minutes),
+            method="PUT",
+            content_type=content_type,
+        )
+    except Exception:
+        return None

@@ -27,6 +27,9 @@ from app.schemas import (
     BatchCreate,
     BatchListOut,
     BatchOut,
+    DirectUploadComplete,
+    DirectUploadInit,
+    DirectUploadInitOut,
     RetryResult,
     UploadFileResult,
 )
@@ -36,6 +39,7 @@ router = APIRouter(prefix="/api/batches", tags=["batches"])
 AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".flac", ".ogg"}
 MAX_AUDIO_BYTES = 200 * 1024 * 1024
 MAX_ZIP_BYTES = 2 * 1024 * 1024 * 1024
+DIRECT_UPLOAD_EXPIRES_SECONDS = 15 * 60
 
 
 async def _counts(session: AsyncSession, batch_id: uuid.UUID) -> BatchCounts:
@@ -132,6 +136,25 @@ async def _get_batch(session: AsyncSession, batch_id: uuid.UUID) -> UploadBatch:
     return batch
 
 
+def _upload_kind_and_limit(filename: str) -> tuple[str, int]:
+    ext = Path(filename).suffix.lower()
+    if ext == ".zip":
+        return "zip", MAX_ZIP_BYTES
+    if ext in AUDIO_EXTS:
+        return "audio", MAX_AUDIO_BYTES
+    raise HTTPException(
+        status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+        f"unsupported file type {ext!r}; allowed: {sorted(AUDIO_EXTS)} or .zip",
+    )
+
+
+def _direct_upload_key(batch_id: uuid.UUID, upload_id: str, filename: str, kind: str) -> str:
+    safe_name = Path(filename).name
+    if kind == "zip":
+        return f"raw/{batch_id}/_zips/{upload_id}/{safe_name}"
+    return f"raw/{batch_id}/{upload_id}/{safe_name}"
+
+
 @router.get("/{batch_id}", response_model=BatchOut)
 async def get_batch(
     batch_id: uuid.UUID,
@@ -140,6 +163,132 @@ async def get_batch(
 ) -> BatchOut:
     batch = await _get_batch(session, batch_id)
     return _out(batch, await _counts(session, batch.id))
+
+
+@router.post("/{batch_id}/direct-upload", response_model=DirectUploadInitOut)
+async def init_direct_upload(
+    batch_id: uuid.UUID,
+    payload: DirectUploadInit,
+    user: User = Depends(require(BATCHES_MANAGE)),
+    session: AsyncSession = Depends(get_session),
+) -> DirectUploadInitOut:
+    batch = await _get_batch(session, batch_id)
+    if batch.status != "open":
+        raise HTTPException(status.HTTP_409_CONFLICT, f"batch is {batch.status}, not open")
+
+    filename = Path(payload.filename).name
+    kind, limit = _upload_kind_and_limit(filename)
+    if payload.size_bytes > limit:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"file exceeds {limit} bytes"
+        )
+
+    content_type = payload.content_type or "application/octet-stream"
+    upload_id = str(uuid.uuid4())
+    key = _direct_upload_key(batch_id, upload_id, filename, kind)
+    upload_url = await run_in_threadpool(
+        gcs.signed_put_url,
+        key,
+        content_type,
+        DIRECT_UPLOAD_EXPIRES_SECONDS // 60,
+    )
+    if upload_url is None:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "storage credentials cannot sign direct upload URLs",
+        )
+    return DirectUploadInitOut(
+        upload_id=upload_id,
+        upload_url=upload_url,
+        headers={"Content-Type": content_type},
+        expires_in_seconds=DIRECT_UPLOAD_EXPIRES_SECONDS,
+        filename=filename,
+        kind=kind,
+        size_bytes=payload.size_bytes,
+    )
+
+
+@router.post("/{batch_id}/direct-upload/complete", response_model=UploadFileResult)
+async def complete_direct_upload(
+    batch_id: uuid.UUID,
+    payload: DirectUploadComplete,
+    user: User = Depends(require(BATCHES_MANAGE)),
+    session: AsyncSession = Depends(get_session),
+) -> UploadFileResult:
+    batch = await _get_batch(session, batch_id)
+    if batch.status != "open":
+        raise HTTPException(status.HTTP_409_CONFLICT, f"batch is {batch.status}, not open")
+
+    filename = Path(payload.filename).name
+    kind, limit = _upload_kind_and_limit(filename)
+    if payload.size_bytes > limit:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"file exceeds {limit} bytes"
+        )
+
+    try:
+        upload_uuid = uuid.UUID(payload.upload_id)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid upload id") from exc
+
+    key = _direct_upload_key(batch_id, str(upload_uuid), filename, kind)
+    uri = gcs.to_uri(key)
+    try:
+        stored_size = await run_in_threadpool(gcs.object_size, uri)
+    except Exception as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "uploaded object not found") from exc
+    if stored_size != payload.size_bytes:
+        await run_in_threadpool(gcs.delete_uri, uri)
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"uploaded size mismatch: expected {payload.size_bytes}, got {stored_size}",
+        )
+
+    if kind == "zip":
+        return UploadFileResult(filename=filename, kind="zip", size_bytes=stored_size)
+
+    if payload.sha256 is None:
+        await run_in_threadpool(gcs.delete_uri, uri)
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "sha256 is required for audio uploads")
+
+    existing = await session.get(Recording, upload_uuid)
+    if existing is not None and existing.batch_id == batch_id:
+        return UploadFileResult(
+            filename=existing.original_filename,
+            kind="audio",
+            recording_id=existing.id,
+            size_bytes=existing.size_bytes,
+        )
+
+    dup = (
+        await session.execute(
+            select(Recording.id).where(
+                Recording.batch_id == batch_id, Recording.sha256 == payload.sha256.lower()
+            )
+        )
+    ).scalar_one_or_none()
+    if dup is not None:
+        await run_in_threadpool(gcs.delete_uri, uri)
+        return UploadFileResult(
+            filename=filename,
+            kind="audio",
+            recording_id=dup,
+            duplicate=True,
+            size_bytes=stored_size,
+        )
+
+    recording = Recording(
+        id=upload_uuid,
+        project_id=batch.project_id,
+        batch_id=batch_id,
+        original_filename=filename,
+        sha256=payload.sha256.lower(),
+        size_bytes=stored_size,
+        gcs_uri_raw=uri,
+    )
+    session.add(recording)
+    await session.commit()
+    return UploadFileResult(filename=filename, kind="audio", recording_id=upload_uuid, size_bytes=stored_size)
 
 
 def _purge_recording_audio(uris: list[str]) -> int:

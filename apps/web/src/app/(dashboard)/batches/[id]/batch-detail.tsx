@@ -24,7 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { apiCall, getApiErrorMessage, uploadMultipart } from "@/lib/api";
+import { apiCall, getApiErrorMessage, uploadDirectToStorage } from "@/lib/api";
 import { formatBytes, formatDateTime, formatDuration } from "@/lib/format";
 import type { Batch, RecordingList, UploadFileResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -147,7 +147,7 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
       pendingFilesRef.current.delete(id);
       activeRef.current += 1;
       updateUpload(id, { state: "uploading", progress: 0 });
-      uploadMultipart<UploadFileResult>(`/api/batches/${batchId}/files`, file, {
+      uploadDirectToStorage<UploadFileResult>(`/api/batches/${batchId}`, file, {
         onProgress: (fraction) => updateUpload(id, { progress: fraction }),
       })
         .then((res) => {
