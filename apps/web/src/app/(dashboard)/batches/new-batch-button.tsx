@@ -46,7 +46,7 @@ export function NewBatchButton() {
       return;
     }
     if (!tradeDate) {
-      setError("Call date is required.");
+      setError("Batch date is required.");
       return;
     }
     setPending(true);
@@ -75,7 +75,7 @@ export function NewBatchButton() {
           <DialogHeader>
             <DialogTitle>New batch</DialogTitle>
             <DialogDescription>
-              Create a batch for one day of calls, then upload its recordings.
+              Create a recording upload batch. The date is used for grouping.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={onSubmit} className="space-y-4">
@@ -91,7 +91,7 @@ export function NewBatchButton() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="batch-trade-date">Call date</Label>
+              <Label htmlFor="batch-trade-date">Batch date</Label>
               <Input
                 id="batch-trade-date"
                 type="date"
@@ -99,6 +99,9 @@ export function NewBatchButton() {
                 value={tradeDate}
                 onChange={(e) => setTradeDate(e.target.value)}
               />
+              <p className="text-xs text-muted-foreground">
+                Recording timestamps and extensions are read from filenames or ZIP metadata.
+              </p>
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <DialogFooter>

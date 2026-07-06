@@ -289,7 +289,7 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
             <StatusBadge status={batch.status} />
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            Call date {batch.trade_date} · {serverFileCount} file
+            Batch date {batch.trade_date} · {serverFileCount} file
             {serverFileCount === 1 ? "" : "s"} · created {formatDateTime(batch.created_at)}
           </p>
         </div>
@@ -357,8 +357,8 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Upload recordings</CardTitle>
             <CardDescription>
-              Audio files or a ZIP of the day&apos;s recordings. Finalize when everything is
-              uploaded to start transcription.
+              Audio files or a ZIP of recordings. Finalize when everything is uploaded to start
+              transcription.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">

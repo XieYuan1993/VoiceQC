@@ -29,6 +29,8 @@ MAX_TOTAL_UNCOMPRESSED = 4 * 1024 * 1024 * 1024
 
 HK = ZoneInfo("Asia/Hong_Kong")
 
+TEXT_EXTS = {".txt", ".text"}
+
 
 def _sha256_file(path: Path) -> str:
     h = hashlib.sha256()
@@ -38,15 +40,122 @@ def _sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def _decode_text(data: bytes) -> str:
+    for encoding in ("utf-8-sig", "utf-8", "big5hkscs", "latin-1"):
+        try:
+            return data.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return data.decode("utf-8", errors="replace")
+
+
+def _parse_call_export_text(text: str) -> dict[str, str | datetime | None]:
+    fields: dict[str, str] = {}
+    for line in text.splitlines():
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        key = key.strip().casefold()
+        value = value.strip()
+        if key:
+            fields[key] = value
+
+    started_at = None
+    start_raw = fields.get("call start time")
+    if start_raw:
+        try:
+            started_at = datetime.strptime(start_raw, "%d %b %Y %H:%M:%S").replace(tzinfo=HK)
+        except ValueError:
+            logger.warning("bad Call Start Time in txt metadata: {}", start_raw)
+
+    direction_raw = (fields.get("call direction") or "").casefold()
+    if direction_raw.startswith("out"):
+        direction = "OUT"
+    elif direction_raw.startswith("in"):
+        direction = "IN"
+    else:
+        direction = "unknown"
+
+    return {
+        "started_at": started_at,
+        "broker_ext": fields.get("extension") or None,
+        "caller_number": fields.get("other party")
+        or fields.get("called number")
+        or fields.get("caller number")
+        or None,
+        "direction": direction,
+    }
+
+
+def _metadata_key_from_start(meta: dict[str, str | datetime | None]) -> str | None:
+    started = meta.get("started_at")
+    if isinstance(started, datetime):
+        return started.strftime("%Y%m%d_%H%M%S")
+    return None
+
+
+def _load_zip_text_metadata(zf: zipfile.ZipFile) -> dict[str, dict[str, str | datetime | None]]:
+    metadata: dict[str, dict[str, str | datetime | None]] = {}
+    for member in zf.infolist():
+        if member.is_dir() or Path(member.filename).suffix.lower() not in TEXT_EXTS:
+            continue
+        name = Path(member.filename).name
+        try:
+            with zf.open(member) as f:
+                metadata[name] = _parse_call_export_text(_decode_text(f.read()))
+        except Exception as e:
+            logger.warning("could not parse txt metadata {}: {}", name, e)
+    return metadata
+
+
+def _match_metadata_for_audio(
+    audio_name: str,
+    metadata: dict[str, dict[str, str | datetime | None]],
+) -> dict[str, str | datetime | None] | None:
+    audio_stem = Path(audio_name).stem
+
+    # 1) Exact same stem, or a metadata filename/id contained in the audio name.
+    for txt_name, meta in metadata.items():
+        txt_stem = Path(txt_name).stem
+        if txt_stem == audio_stem or txt_stem in audio_stem or audio_stem in txt_stem:
+            return meta
+
+    # 2) Fall back to Call Start Time -> YYYYMMDD_HHMMSS, matching the wav name.
+    for meta in metadata.values():
+        key = _metadata_key_from_start(meta)
+        if key and key in audio_stem:
+            return meta
+    return None
+
+
+def _apply_txt_metadata(rec: Recording, meta: dict[str, str | datetime | None] | None) -> None:
+    if not meta:
+        return
+    rec.broker_ext = str(meta["broker_ext"]) if meta.get("broker_ext") else rec.broker_ext
+    rec.caller_number = (
+        str(meta["caller_number"]) if meta.get("caller_number") else rec.caller_number
+    )
+    rec.direction = str(meta.get("direction") or rec.direction or "unknown").upper()
+    if isinstance(meta.get("started_at"), datetime):
+        rec.call_started_at = meta["started_at"]
+
+
 def _expand_zips(session, batch_id: str, project_id) -> int:
     """Extract audio members of every staged zip into recording rows."""
     created = 0
+    filename_pattern = get_setting(session, project_id, "filename.parse_regex")
+    try:
+        filename_regex = re.compile(filename_pattern) if filename_pattern else None
+    except re.error as e:
+        logger.error("invalid filename.parse_regex while expanding zip: {}", e)
+        filename_regex = None
     zip_keys = gcs.list_keys(f"raw/{batch_id}/_zips/")
     for key in zip_keys:
         with tempfile.TemporaryDirectory() as tmpdir:
             zip_path = Path(tmpdir) / "batch.zip"
             gcs.download_uri_to_file(gcs.to_uri(key), str(zip_path))
             with zipfile.ZipFile(zip_path) as zf:
+                txt_metadata = _load_zip_text_metadata(zf)
                 members = [
                     m for m in zf.infolist()
                     if not m.is_dir()
@@ -84,16 +193,22 @@ def _expand_zips(session, batch_id: str, project_id) -> int:
                         continue
                     rid = uuid.uuid4()
                     raw_uri = gcs.upload_file(f"raw/{batch_id}/{rid}/{name}", str(out))
-                    session.add(
-                        Recording(
-                            id=rid,
-                            project_id=project_id,
-                            batch_id=uuid.UUID(batch_id),
-                            original_filename=name,
-                            sha256=sha,
-                            size_bytes=out.stat().st_size,
-                            gcs_uri_raw=raw_uri,
+                    recording = Recording(
+                        id=rid,
+                        project_id=project_id,
+                        batch_id=uuid.UUID(batch_id),
+                        original_filename=name,
+                        sha256=sha,
+                        size_bytes=out.stat().st_size,
+                        gcs_uri_raw=raw_uri,
+                    )
+                    if not (filename_regex and filename_regex.match(name)):
+                        _apply_txt_metadata(
+                            recording,
+                            _match_metadata_for_audio(name, txt_metadata),
                         )
+                    session.add(
+                        recording
                     )
                     created += 1
         gcs.delete_key(key)

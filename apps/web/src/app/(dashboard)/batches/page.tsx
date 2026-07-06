@@ -97,7 +97,7 @@ export default async function BatchesPage({
         <div>
           <h1 className="text-2xl font-semibold">Batches</h1>
           <p className="text-sm text-muted-foreground">
-            Daily recording uploads and processing runs.
+            Recording upload batches and processing runs.
           </p>
         </div>
         {manage && <NewBatchButton />}
@@ -128,7 +128,7 @@ export default async function BatchesPage({
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
                   <TableHead>Name</TableHead>
-                  <TableHead>Call date</TableHead>
+                  <TableHead>Batch date</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Files</TableHead>
                   <TableHead>Progress</TableHead>

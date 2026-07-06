@@ -75,7 +75,7 @@ export function BatchFilters({
           value={from}
           onChange={(e) => apply({ from: e.target.value })}
           className="w-40"
-          aria-label="Call date from"
+          aria-label="Batch date from"
         />
         <span className="text-sm text-muted-foreground">to</span>
         <Input
@@ -83,7 +83,7 @@ export function BatchFilters({
           value={to}
           onChange={(e) => apply({ to: e.target.value })}
           className="w-40"
-          aria-label="Call date to"
+          aria-label="Batch date to"
         />
       </div>
       {hasFilters && (
