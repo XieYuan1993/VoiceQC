@@ -70,12 +70,8 @@ services:
     dockerContext: .
     plan: starter
     region: singapore
-    # One worker process with embedded beat (-B). Keep exactly ONE beat: if you
-    # scale to >1 instance, drop -B here and add a separate 1-instance beat svc.
-    # Migrations run at container startup (on the private network); alembic is
-    # idempotent. WORKER_CONCURRENCY defaults to 3 for faster batch throughput;
-    # lower it to 1 if the Render instance OOM-restarts under audio/STT load.
-    # `exec` hands PID 1 to celery for clean signal handling.
+    # Main worker: default batch/control tasks + audio normalization, plus the
+    # single embedded beat scheduler and DB migrations. Keep exactly ONE beat.
     dockerCommand: "/app/infra/docker/start-worker.sh"
     envVars:
       - key: ENV
@@ -104,8 +100,118 @@ services:
         value: dashscope
       - key: DASHSCOPE_LLM_MODEL
         value: qwen3.7-max
+      - key: WORKER_QUEUES
+        value: default,audio
+      - key: WORKER_CONCURRENCY
+        value: "1"
+      - key: WORKER_BEAT
+        value: "true"
+      - key: WORKER_RUN_MIGRATIONS
+        value: "true"
+      - key: GOOGLE_CLOUD_PROJECT
+        sync: false
+      - key: GCS_BUCKET_AUDIO
+        sync: false
+      - key: DASHSCOPE_API_KEY
+        sync: false
+      - key: DASHSCOPE_BASE_URL
+        sync: false
+
+  - type: worker
+    name: voiceqa-worker-stt
+    runtime: docker
+    dockerfilePath: ./infra/docker/Dockerfile
+    dockerContext: .
+    plan: starter
+    region: singapore
+    dockerCommand: "/app/infra/docker/start-worker.sh"
+    envVars:
+      - key: ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: voiceqa-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: voiceqa-redis
+          property: connectionString
+      - fromGroup: voiceqa-secrets
+      - key: GOOGLE_APPLICATION_CREDENTIALS
+        value: /etc/secrets/gcp-sa.json
+      - key: GOOGLE_STT_LOCATION
+        value: asia-southeast1
+      - key: VERTEX_LLM_LOCATION
+        value: asia-southeast1
+      - key: VERTEX_LLM_MODEL
+        value: gemini-3.5-flash
+      - key: LLM_PROVIDER
+        value: gemini
+      - key: LLM_FALLBACK_PROVIDER
+        value: dashscope
+      - key: DASHSCOPE_LLM_MODEL
+        value: qwen3.7-max
+      - key: WORKER_QUEUES
+        value: stt
       - key: WORKER_CONCURRENCY
         value: "3"
+      - key: WORKER_BEAT
+        value: "false"
+      - key: WORKER_RUN_MIGRATIONS
+        value: "false"
+      - key: GOOGLE_CLOUD_PROJECT
+        sync: false
+      - key: GCS_BUCKET_AUDIO
+        sync: false
+      - key: DASHSCOPE_API_KEY
+        sync: false
+      - key: DASHSCOPE_BASE_URL
+        sync: false
+
+  - type: worker
+    name: voiceqa-worker-llm
+    runtime: docker
+    dockerfilePath: ./infra/docker/Dockerfile
+    dockerContext: .
+    plan: starter
+    region: singapore
+    dockerCommand: "/app/infra/docker/start-worker.sh"
+    envVars:
+      - key: ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: voiceqa-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: voiceqa-redis
+          property: connectionString
+      - fromGroup: voiceqa-secrets
+      - key: GOOGLE_APPLICATION_CREDENTIALS
+        value: /etc/secrets/gcp-sa.json
+      - key: GOOGLE_STT_LOCATION
+        value: asia-southeast1
+      - key: VERTEX_LLM_LOCATION
+        value: asia-southeast1
+      - key: VERTEX_LLM_MODEL
+        value: gemini-3.5-flash
+      - key: LLM_PROVIDER
+        value: gemini
+      - key: LLM_FALLBACK_PROVIDER
+        value: dashscope
+      - key: DASHSCOPE_LLM_MODEL
+        value: qwen3.7-max
+      - key: WORKER_QUEUES
+        value: llm
+      - key: WORKER_CONCURRENCY
+        value: "2"
+      - key: WORKER_BEAT
+        value: "false"
+      - key: WORKER_RUN_MIGRATIONS
+        value: "false"
       - key: GOOGLE_CLOUD_PROJECT
         sync: false
       - key: GCS_BUCKET_AUDIO

@@ -35,15 +35,16 @@ The artifacts are in the repo: [`infra/docker/Dockerfile`](infra/docker/Dockerfi
 ## 1. Backend on Render (Blueprint)
 
 1. Render → **New → Blueprint** → connect the repo. It reads `render.yaml` and
-   creates four resources: `voiceqa-api` (web), `voiceqa-worker` (background),
+   creates six resources: `voiceqa-api` (web), three background workers
+   (`voiceqa-worker`, `voiceqa-worker-stt`, `voiceqa-worker-llm`),
    `voiceqa-db` (Postgres 16), `voiceqa-redis` (Key Value). Click **Apply**.
 2. Three secrets auto-generate in the **`voiceqa-secrets`** env group:
    `NEXTAUTH_SECRET`, `INTERNAL_API_SECRET`, `APP_ENCRYPTION_KEY`. **Copy their
    values** (you'll paste the same ones into Vercel — they must match byte-for-byte).
-3. Add the GCP key as a **Secret File** on **both** `voiceqa-api` and
-   `voiceqa-worker`: name it **`gcp-sa.json`** (it mounts at
+3. Add the GCP key as a **Secret File** on `voiceqa-api` and all worker
+   services: name it **`gcp-sa.json`** (it mounts at
    `/etc/secrets/gcp-sa.json`, which `GOOGLE_APPLICATION_CREDENTIALS` already points at).
-4. Fill the `sync: false` vars on **both** services:
+4. Fill the `sync: false` vars on **all backend services**:
    `GOOGLE_CLOUD_PROJECT`, `GCS_BUCKET_AUDIO`, `DASHSCOPE_API_KEY`, `DASHSCOPE_BASE_URL`.
    (`NEXTAUTH_URL` + `ALLOWED_ORIGINS` on the api come in step 4.)
 5. Deploy. The api runs `alembic upgrade head` automatically before going live.
@@ -139,10 +140,12 @@ plain `postgresql://` from any managed Postgres.
   Auth.js cookie-domain config.
 - **Region:** `render.yaml` uses Singapore (near the `asia-east2` bucket +
   `asia-southeast1` Vertex). Adjust for your data-residency needs.
-- **Scaling / beat:** keep exactly one worker instance while it runs embedded beat
-  (`-B`). The default worker concurrency is `WORKER_CONCURRENCY=3`; lower it to
-  `1` if the worker OOM-restarts on the current Render plan. To scale workers,
-  drop `-B` and add a separate 1-instance beat service.
+- **Scaling / beat:** Render runs three worker services by queue:
+  `voiceqa-worker` handles `default,audio` with `WORKER_BEAT=true`,
+  `voiceqa-worker-stt` handles `stt` at concurrency 3, and
+  `voiceqa-worker-llm` handles `llm` at concurrency 2. Keep exactly one beat
+  service; duplicate beats run scheduled jobs more than once. If a worker
+  OOM-restarts, lower that service's `WORKER_CONCURRENCY`.
 - **Seed content:** the seed also creates the Quam demo data (brokers, HK stock
   glossary). For a clean generic install, delete those after seeding (or ask me to
   split the seed into generic vs demo).
