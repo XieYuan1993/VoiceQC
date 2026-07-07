@@ -73,9 +73,9 @@ services:
     # One worker process with embedded beat (-B). Keep exactly ONE beat: if you
     # scale to >1 instance, drop -B here and add a separate 1-instance beat svc.
     # Migrations run at container startup (on the private network); alembic is
-    # idempotent. concurrency=1 (not 2) to fit the 512MB Starter — the Vertex/GCS/
-    # ASR client imports are memory-heavy and 2 prefork workers OOM'd. `exec`
-    # hands PID 1 to celery for clean signal handling.
+    # idempotent. WORKER_CONCURRENCY defaults to 3 for faster batch throughput;
+    # lower it to 1 if the Render instance OOM-restarts under audio/STT load.
+    # `exec` hands PID 1 to celery for clean signal handling.
     dockerCommand: "/app/infra/docker/start-worker.sh"
     envVars:
       - key: ENV
@@ -104,6 +104,8 @@ services:
         value: dashscope
       - key: DASHSCOPE_LLM_MODEL
         value: qwen3.7-max
+      - key: WORKER_CONCURRENCY
+        value: "3"
       - key: GOOGLE_CLOUD_PROJECT
         sync: false
       - key: GCS_BUCKET_AUDIO

@@ -140,7 +140,9 @@ plain `postgresql://` from any managed Postgres.
 - **Region:** `render.yaml` uses Singapore (near the `asia-east2` bucket +
   `asia-southeast1` Vertex). Adjust for your data-residency needs.
 - **Scaling / beat:** keep exactly one worker instance while it runs embedded beat
-  (`-B`). To scale workers, drop `-B` and add a separate 1-instance beat service.
+  (`-B`). The default worker concurrency is `WORKER_CONCURRENCY=3`; lower it to
+  `1` if the worker OOM-restarts on the current Render plan. To scale workers,
+  drop `-B` and add a separate 1-instance beat service.
 - **Seed content:** the seed also creates the Quam demo data (brokers, HK stock
   glossary). For a clean generic install, delete those after seeding (or ask me to
   split the seed into generic vs demo).
