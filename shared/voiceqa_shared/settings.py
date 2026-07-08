@@ -120,6 +120,9 @@ class SharedSettings(BaseSettings):
     TENCENT_SECRET_ID: SecretStr = SecretStr("")
     TENCENT_SECRET_KEY: SecretStr = SecretStr("")
     TENCENT_ASR_REGION: str = "ap-guangzhou"
+    # Optional public API base URL used to let Tencent ASR download private GCS
+    # audio through VoiceQA instead of pulling Google Storage directly.
+    ASR_AUDIO_PROXY_BASE_URL: str = ""
 
     LOG_LEVEL: str = "INFO"
 

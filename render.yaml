@@ -128,6 +128,8 @@ services:
         sync: false
       - key: TENCENT_ASR_REGION
         value: ap-guangzhou
+      - key: ASR_AUDIO_PROXY_BASE_URL
+        sync: false
 
   - type: worker
     name: voiceqa-worker-stt
@@ -186,6 +188,8 @@ services:
         sync: false
       - key: TENCENT_ASR_REGION
         value: ap-guangzhou
+      - key: ASR_AUDIO_PROXY_BASE_URL
+        sync: false
 
   - type: worker
     name: voiceqa-worker-llm
@@ -244,6 +248,8 @@ services:
         sync: false
       - key: TENCENT_ASR_REGION
         value: ap-guangzhou
+      - key: ASR_AUDIO_PROXY_BASE_URL
+        sync: false
 
   - type: redis
     name: voiceqa-redis

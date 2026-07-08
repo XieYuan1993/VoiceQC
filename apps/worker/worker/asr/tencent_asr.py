@@ -15,7 +15,7 @@ from typing import Any
 
 import httpx
 from loguru import logger
-from voiceqa_shared import gcs
+from voiceqa_shared import asr_audio_proxy, gcs
 
 from worker.asr.base import AdaptationPhrase, ChannelFile, FileResult, SegmentResult
 from worker.settings import settings
@@ -23,6 +23,7 @@ from worker.settings import settings
 ENDPOINT = "asr.tencentcloudapi.com"
 SERVICE = "asr"
 VERSION = "2019-06-14"
+URL_EXPIRES_SECONDS = 4 * 60 * 60
 
 
 def _hmac_sha256(key: bytes, msg: str) -> bytes:
@@ -138,6 +139,19 @@ def _parse_detail(detail: list[dict[str, Any]]) -> list[SegmentResult]:
 class TencentASR:
     provider = "tencent"
 
+    def _audio_url(self, uri: str) -> str:
+        if settings.ASR_AUDIO_PROXY_BASE_URL:
+            return asr_audio_proxy.create_url(
+                settings.ASR_AUDIO_PROXY_BASE_URL,
+                uri,
+                settings.INTERNAL_API_SECRET.get_secret_value(),
+                expires_in_seconds=URL_EXPIRES_SECONDS,
+            )
+        url = gcs.signed_url(uri, minutes=URL_EXPIRES_SECONDS // 60)
+        if not url:
+            raise RuntimeError("cannot sign audio URL for Tencent ASR")
+        return url
+
     def start_batch(
         self,
         files: list[ChannelFile],
@@ -151,9 +165,7 @@ class TencentASR:
         tasks: dict[str, int] = {}
         engine = model or "16k_zh_en"
         for f in files:
-            url = gcs.signed_url(f.uri, minutes=240)
-            if not url:
-                raise RuntimeError("cannot sign audio URL for Tencent ASR")
+            url = self._audio_url(f.uri)
             payload: dict[str, Any] = {
                 "EngineModelType": engine,
                 "ChannelNum": 1,

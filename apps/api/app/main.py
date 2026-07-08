@@ -16,6 +16,7 @@ from app.routers import (
     admin,
     admin_sso,
     admin_users,
+    asr_audio,
     auth,
     batches,
     checklist,
@@ -72,6 +73,7 @@ app.include_router(health.router)
 app.include_router(me.router)
 app.include_router(projects.router)
 app.include_router(auth.router)
+app.include_router(asr_audio.router)
 app.include_router(batches.router)
 app.include_router(recordings.router)
 app.include_router(terms.router)

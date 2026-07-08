@@ -48,7 +48,9 @@ The artifacts are in the repo: [`infra/docker/Dockerfile`](infra/docker/Dockerfi
    `GOOGLE_CLOUD_PROJECT`, `GCS_BUCKET_AUDIO`, `DASHSCOPE_API_KEY`, `DASHSCOPE_BASE_URL`,
    `TENCENT_SECRET_ID`, `TENCENT_SECRET_KEY`.
    (`NEXTAUTH_URL` + `ALLOWED_ORIGINS` on the api come in step 4.)
-5. Deploy. The api runs `alembic upgrade head` automatically before going live.
+5. On worker services, set `ASR_AUDIO_PROXY_BASE_URL` to the public api URL from Render
+   (for example `https://voiceqa-api-xxxx.onrender.com`) when using Tencent ASR.
+6. Deploy. The api runs `alembic upgrade head` automatically before going live.
    Note the api URL, e.g. `https://voiceqa-api-xxxx.onrender.com`.
 
 ## 2. Seed once
