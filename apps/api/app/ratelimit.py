@@ -23,6 +23,9 @@ limiter = Limiter(
     default_limits=["300/minute"],
     storage_uri=settings.REDIS_URL,
     strategy="fixed-window",
+    swallow_errors=True,
+    in_memory_fallback=["300/minute"],
+    in_memory_fallback_enabled=True,
 )
 
 
