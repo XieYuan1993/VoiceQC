@@ -645,8 +645,15 @@ def evaluate(self, recording_id: str) -> None:
             )
         )
         if transient:
-            from worker.tasks.pipeline import _touch_updated_at
-            _touch_updated_at(recording_id)
+            if self.request.retries >= self.max_retries:
+                with SessionLocal() as session:
+                    ev = session.get(Evaluation, evaluation_id)
+                    if ev is not None:
+                        ev.status = "failed"
+                        ev.error = "evaluation retry limit exceeded"
+                        session.commit()
+                _fail(recording_id, "eval", RuntimeError("evaluation retry limit exceeded"))
+                raise
             raise self.retry(countdown=60, exc=e) from e
         with SessionLocal() as session:
             ev = session.get(Evaluation, evaluation_id)

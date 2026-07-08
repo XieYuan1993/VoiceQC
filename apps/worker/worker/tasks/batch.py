@@ -9,17 +9,29 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from celery import chain
 from loguru import logger
 from sqlalchemy import func, select
 from voiceqa_shared.db_models import Recording, UploadBatch
 
 from worker.celery_app import app
 from worker.db import SessionLocal
+from worker.settings import settings
 
 NON_TERMINAL = ("uploaded", "converting", "transcribing", "evaluating")
-STUCK_AFTER = timedelta(hours=4)
-MAX_ATTEMPTS = 10
+
+
+def _timeout_for_status(status: str) -> timedelta:
+    seconds = {
+        "uploaded": settings.RECORDING_CONVERT_TIMEOUT_SECONDS,
+        "converting": settings.RECORDING_CONVERT_TIMEOUT_SECONDS,
+        "transcribing": settings.RECORDING_STT_TIMEOUT_SECONDS,
+        "evaluating": settings.RECORDING_EVAL_TIMEOUT_SECONDS,
+    }.get(status, settings.RECORDING_CONVERT_TIMEOUT_SECONDS)
+    return timedelta(seconds=max(60, int(seconds)))
+
+
+def _stage_for_status(status: str) -> str:
+    return {"transcribing": "stt", "evaluating": "eval"}.get(status, "convert")
 
 
 @app.task(name="voiceqa.batch.update_progress")
@@ -44,45 +56,39 @@ def update_progress(batch_id: str) -> None:
 
 @app.task(name="voiceqa.batch.sweep_stuck")
 def sweep_stuck() -> None:
-    """Beat task: re-dispatch or fail recordings stuck in a non-terminal state."""
-    from worker.tasks.pipeline import normalize_audio, transcribe
-
-    cutoff = datetime.now(UTC) - STUCK_AFTER
-    redispatched, failed = [], []
+    """Beat task: fail recordings stuck in a non-terminal state past timeout."""
+    now = datetime.now(UTC)
+    failed: list[tuple[str, str, str, int]] = []
     with SessionLocal() as session:
         rows = (
             session.execute(
-                select(Recording).where(
+                select(Recording)
+                .join(UploadBatch, Recording.batch_id == UploadBatch.id)
+                .where(
                     Recording.status.in_(NON_TERMINAL),
-                    Recording.updated_at < cutoff,
+                    UploadBatch.status == "processing",
                 )
             )
             .scalars()
             .all()
         )
         for rec in rows:
-            if rec.attempts >= MAX_ATTEMPTS:
-                rec.failed_stage = {"transcribing": "stt", "evaluating": "eval"}.get(
-                    rec.status, "convert"
-                )
-                rec.status = "failed"
-                rec.error = f"stuck after {MAX_ATTEMPTS} attempts"
-                failed.append((str(rec.id), str(rec.batch_id)))
-            else:
-                rec.attempts += 1
-                redispatched.append((str(rec.id), rec.status))
+            age = now - rec.updated_at
+            timeout = _timeout_for_status(rec.status)
+            if age < timeout:
+                continue
+            status = rec.status
+            rec.failed_stage = _stage_for_status(status)
+            rec.status = "failed"
+            rec.error = (
+                f"{status} timed out after {int(age.total_seconds() // 60)} minutes "
+                f"(limit {int(timeout.total_seconds() // 60)} minutes)"
+            )
+            rec.stt_operation_name = None if status == "transcribing" else rec.stt_operation_name
+            failed.append((str(rec.id), str(rec.batch_id), status, int(age.total_seconds())))
         session.commit()
 
-    for rid, status in redispatched:
-        if status == "evaluating":
-            from worker.tasks.evaluate import evaluate
-
-            evaluate.delay(rid)
-        elif status == "transcribing":
-            transcribe.delay(rid)
-        else:
-            chain(normalize_audio.si(rid), transcribe.si(rid)).apply_async()
     for _rid, batch_id in failed:
         update_progress.delay(batch_id)
-    if redispatched or failed:
-        logger.warning("sweep_stuck: {} redispatched, {} failed", len(redispatched), len(failed))
+    if failed:
+        logger.warning("sweep_stuck: {} recording(s) failed by timeout: {}", len(failed), failed)

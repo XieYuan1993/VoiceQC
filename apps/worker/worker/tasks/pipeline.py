@@ -261,7 +261,7 @@ def _interleave_turns(seg_pairs: list[tuple[str, object]]) -> list[tuple[str, in
     return out
 
 
-@app.task(name="voiceqa.pipeline.transcribe", bind=True, max_retries=120)
+@app.task(name="voiceqa.pipeline.transcribe", bind=True, max_retries=180)
 def transcribe(
     self,
     recording_id: str,
@@ -326,6 +326,9 @@ def transcribe(
                 )
             )
             if transient:
+                if self.request.retries >= self.max_retries:
+                    _fail(recording_id, "stt", RuntimeError("stt retry limit exceeded"))
+                    raise
                 _touch_updated_at(recording_id)
                 raise self.retry(countdown=60, exc=e) from e
             _fail(recording_id, "stt", e)
@@ -334,6 +337,10 @@ def transcribe(
         if results is None:
             # LRO still running — poll again shortly. acks_late + the stored
             # operation name make this resumable across worker restarts.
+            if self.request.retries >= self.max_retries:
+                exc = RuntimeError("stt timed out waiting for ASR result")
+                _fail(recording_id, "stt", exc)
+                raise exc
             raise self.retry(countdown=20)
 
         role_by_uri = {f.uri: f.channel_role for f in files}

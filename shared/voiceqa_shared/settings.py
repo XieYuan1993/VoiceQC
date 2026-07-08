@@ -124,6 +124,12 @@ class SharedSettings(BaseSettings):
     # audio through VoiceQA instead of pulling Google Storage directly.
     ASR_AUDIO_PROXY_BASE_URL: str = ""
 
+    # Recording pipeline stage timeouts. The worker's sweep task marks stale
+    # in-flight recordings failed so operators can retry/rerun them.
+    RECORDING_CONVERT_TIMEOUT_SECONDS: int = 30 * 60
+    RECORDING_STT_TIMEOUT_SECONDS: int = 30 * 60
+    RECORDING_EVAL_TIMEOUT_SECONDS: int = 30 * 60
+
     LOG_LEVEL: str = "INFO"
 
     @model_validator(mode="after")
