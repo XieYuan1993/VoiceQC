@@ -83,6 +83,8 @@ boot** if any of `NEXTAUTH_SECRET`, `INTERNAL_API_SECRET`, or
 | `VERTEX_LLM_LOCATION` | worker | `asia-southeast1` (3.x flash may force `global` — adapter falls back with a logged warning) |
 | `GCS_BUCKET_AUDIO` | api, worker | the `asia-east2` bucket |
 | `GOOGLE_STT_MODEL` / `VERTEX_LLM_MODEL` | worker | `chirp_2` / `gemini-3.5-flash` (also editable at runtime via Settings) |
+| `TENCENT_SECRET_ID` / `TENCENT_SECRET_KEY` | worker | required when `asr.provider=tencent`; use `asr.model=16k_zh_en` for Tencent's "普方英大模型" |
+| `TENCENT_ASR_REGION` | worker | `ap-guangzhou` by default |
 | `SMTP_HOST/PORT/USER/PASS`, `MAIL_FROM` | api | real relay |
 
 The three "MUST be identical across api+web" secrets are the cross-tier trust

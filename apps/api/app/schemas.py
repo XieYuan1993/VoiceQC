@@ -119,6 +119,11 @@ class RetryResult(BaseModel):
     retried: int
 
 
+class BatchSttRerunIn(BaseModel):
+    asr_provider: str = Field(pattern="^(tencent|qwen|google|gemini)$")
+    asr_model: str | None = Field(default=None, min_length=1, max_length=200)
+
+
 class RecordingOut(BaseModel):
     id: uuid.UUID
     batch_id: uuid.UUID

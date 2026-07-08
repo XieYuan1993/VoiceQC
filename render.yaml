@@ -62,6 +62,12 @@ services:
         sync: false
       - key: DASHSCOPE_BASE_URL
         sync: false
+      - key: TENCENT_SECRET_ID
+        sync: false
+      - key: TENCENT_SECRET_KEY
+        sync: false
+      - key: TENCENT_ASR_REGION
+        value: ap-guangzhou
 
   - type: worker
     name: voiceqa-worker
@@ -116,6 +122,12 @@ services:
         sync: false
       - key: DASHSCOPE_BASE_URL
         sync: false
+      - key: TENCENT_SECRET_ID
+        sync: false
+      - key: TENCENT_SECRET_KEY
+        sync: false
+      - key: TENCENT_ASR_REGION
+        value: ap-guangzhou
 
   - type: worker
     name: voiceqa-worker-stt
@@ -168,6 +180,12 @@ services:
         sync: false
       - key: DASHSCOPE_BASE_URL
         sync: false
+      - key: TENCENT_SECRET_ID
+        sync: false
+      - key: TENCENT_SECRET_KEY
+        sync: false
+      - key: TENCENT_ASR_REGION
+        value: ap-guangzhou
 
   - type: worker
     name: voiceqa-worker-llm
@@ -220,6 +238,12 @@ services:
         sync: false
       - key: DASHSCOPE_BASE_URL
         sync: false
+      - key: TENCENT_SECRET_ID
+        sync: false
+      - key: TENCENT_SECRET_KEY
+        sync: false
+      - key: TENCENT_ASR_REGION
+        value: ap-guangzhou
 
   - type: redis
     name: voiceqa-redis

@@ -115,6 +115,12 @@ class SharedSettings(BaseSettings):
     DASHSCOPE_API_KEY: SecretStr = SecretStr("")
     DASHSCOPE_BASE_URL: str = ""
 
+    # Tencent Cloud ASR (CreateRecTask / DescribeTaskStatus). The Tencent
+    # "普方英大模型" engine is EngineModelType=16k_zh_en.
+    TENCENT_SECRET_ID: SecretStr = SecretStr("")
+    TENCENT_SECRET_KEY: SecretStr = SecretStr("")
+    TENCENT_ASR_REGION: str = "ap-guangzhou"
+
     LOG_LEVEL: str = "INFO"
 
     @model_validator(mode="after")

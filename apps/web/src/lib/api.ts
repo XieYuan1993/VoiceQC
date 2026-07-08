@@ -93,6 +93,29 @@ export async function apiCall<P extends keyof paths, M extends keyof paths[P] & 
   return parsed as ApiResponse<P, M>;
 }
 
+export async function apiJson<T>(
+  path: string,
+  method: "get" | "post" | "put" | "patch" | "delete",
+  opts: ApiOptions = {},
+): Promise<T> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (opts.cookieHeader) headers["Cookie"] = opts.cookieHeader;
+
+  const res = await fetch(`${API_URL}${path}`, {
+    method: method.toUpperCase(),
+    headers,
+    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    credentials: "include",
+    signal: opts.signal,
+    cache: "no-store",
+  });
+  const parsed = await parseResponseBody(res);
+  if (!res.ok) throw new ApiError(res.status, parsed);
+  return parsed as T;
+}
+
 /**
  * Human-readable message out of an ApiError. FastAPI errors are either
  * `{detail: "..."}` or `{detail: [{loc, msg, ...}, ...]}` (422 validation).

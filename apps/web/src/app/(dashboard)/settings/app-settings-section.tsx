@@ -56,6 +56,7 @@ const EXECUTION_TYPE_OPTIONS = [
 
 const SELECT_OPTIONS: Record<string, Array<{ value: string; label: string }>> = {
   "asr.provider": [
+    { value: "tencent", label: "Tencent ASR" },
     { value: "qwen", label: "Qwen ASR" },
     { value: "gemini", label: "Gemini audio" },
     { value: "google", label: "Google STT" },

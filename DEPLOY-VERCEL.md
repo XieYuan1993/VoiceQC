@@ -45,7 +45,8 @@ The artifacts are in the repo: [`infra/docker/Dockerfile`](infra/docker/Dockerfi
    services: name it **`gcp-sa.json`** (it mounts at
    `/etc/secrets/gcp-sa.json`, which `GOOGLE_APPLICATION_CREDENTIALS` already points at).
 4. Fill the `sync: false` vars on **all backend services**:
-   `GOOGLE_CLOUD_PROJECT`, `GCS_BUCKET_AUDIO`, `DASHSCOPE_API_KEY`, `DASHSCOPE_BASE_URL`.
+   `GOOGLE_CLOUD_PROJECT`, `GCS_BUCKET_AUDIO`, `DASHSCOPE_API_KEY`, `DASHSCOPE_BASE_URL`,
+   `TENCENT_SECRET_ID`, `TENCENT_SECRET_KEY`.
    (`NEXTAUTH_URL` + `ALLOWED_ORIGINS` on the api come in step 4.)
 5. Deploy. The api runs `alembic upgrade head` automatically before going live.
    Note the api URL, e.g. `https://voiceqa-api-xxxx.onrender.com`.

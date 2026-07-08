@@ -262,7 +262,12 @@ def _interleave_turns(seg_pairs: list[tuple[str, object]]) -> list[tuple[str, in
 
 
 @app.task(name="voiceqa.pipeline.transcribe", bind=True, max_retries=120)
-def transcribe(self, recording_id: str) -> None:
+def transcribe(
+    self,
+    recording_id: str,
+    asr_provider_override: str | None = None,
+    asr_model_override: str | None = None,
+) -> None:
 
     with SessionLocal() as session:
         rec = session.get(Recording, uuid.UUID(recording_id))
@@ -282,14 +287,17 @@ def transcribe(self, recording_id: str) -> None:
             _fail(recording_id, "stt", RuntimeError("no normalized audio uris"))
             return
 
-        provider = get_setting(session, project_id, "asr.provider", "google")
+        provider = asr_provider_override or get_setting(session, project_id, "asr.provider", "google")
         adapter = _adapter(provider)
         try:
             if not rec.stt_operation_name:
                 language_mode = rec.language_mode or get_setting(
                     session, project_id, "asr.language_mode", "auto"
                 )
-                model = get_setting(session, project_id, "asr.model", settings.GOOGLE_STT_MODEL)
+                model = (
+                    asr_model_override
+                    or get_setting(session, project_id, "asr.model", settings.GOOGLE_STT_MODEL)
+                )
                 # Results come back in the operation response (chirp inline /
                 # Gemini synchronous) and are persisted straight to Postgres —
                 # nothing is written to the bucket besides the audio itself.
@@ -333,7 +341,10 @@ def transcribe(self, recording_id: str) -> None:
         segments: list[tuple[str, object]] = []  # (role, SegmentResult)
         languages: dict[str, int] = {}
         billed = 0.0
-        model = get_setting(session, project_id, "asr.model", settings.GOOGLE_STT_MODEL)
+        model = (
+            asr_model_override
+            or get_setting(session, project_id, "asr.model", settings.GOOGLE_STT_MODEL)
+        )
         for r in results:
             role = role_by_uri.get(r.uri, "mixed")
             billed += r.billed_seconds
@@ -393,7 +404,7 @@ def transcribe(self, recording_id: str) -> None:
 
         stmt = pg_insert(SttUsage).values(
             day=datetime.now(UTC).date(),
-            provider="google",
+            provider=provider,
             model=model,
             audio_seconds=int(billed),
             requests=1,

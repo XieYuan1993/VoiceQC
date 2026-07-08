@@ -6,11 +6,13 @@ from worker.asr.base import BatchASRAdapter
 from worker.asr.gemini_audio import GeminiAudioASR
 from worker.asr.google_batch import GoogleBatchASR
 from worker.asr.qwen_asr import QwenASR
+from worker.asr.tencent_asr import TencentASR
 
 PROVIDERS = {
     "google": GoogleBatchASR,
     "gemini": GeminiAudioASR,
     "qwen": QwenASR,
+    "tencent": TencentASR,
 }
 
 

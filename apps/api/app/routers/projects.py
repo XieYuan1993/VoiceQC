@@ -35,8 +35,8 @@ router = APIRouter(prefix="/api/projects", tags=["projects"])
 # (filename.parse_regex, recon.*) are intentionally omitted.
 NEW_PROJECT_SETTINGS: dict[str, object] = {
     "audio.broker_channel": "left",
-    "asr.provider": "qwen",
-    "asr.model": "qwen3-asr-flash",
+    "asr.provider": "tencent",
+    "asr.model": "16k_zh_en",
     "asr.language_mode": "auto",
     "asr.adaptation": "off",
     "asr.adaptation_boost": 5,

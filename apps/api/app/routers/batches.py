@@ -27,6 +27,8 @@ from app.schemas import (
     BatchCreate,
     BatchListOut,
     BatchOut,
+    BatchSttRerunIn,
+    BulkRerunOut,
     DirectUploadComplete,
     DirectUploadInit,
     DirectUploadInitOut,
@@ -475,3 +477,51 @@ async def retry_failed(
     for rid, stage in plans:
         queue.send_pipeline_chain(rid, from_stage=stage)
     return RetryResult(retried=len(plans))
+
+
+@router.post("/{batch_id}/rerun-stt", response_model=BulkRerunOut)
+async def rerun_batch_stt(
+    batch_id: uuid.UUID,
+    payload: BatchSttRerunIn,
+    user: User = Depends(require(BATCHES_MANAGE)),
+    session: AsyncSession = Depends(get_session),
+    meta: ClientMeta = Depends(client_meta),
+) -> BulkRerunOut:
+    batch = await _get_batch(session, batch_id)
+    rows = (
+        await session.execute(
+            select(Recording).where(
+                Recording.batch_id == batch_id,
+                (
+                    Recording.gcs_uri_broker.is_not(None)
+                    | Recording.gcs_uri_customer.is_not(None)
+                    | Recording.gcs_uri_mono.is_not(None)
+                ),
+            )
+        )
+    ).scalars().all()
+    for rec in rows:
+        rec.status = "transcribing"
+        rec.failed_stage = None
+        rec.error = None
+        rec.stt_operation_name = None
+    if rows:
+        batch.status = "processing"
+    log_audit(
+        session, action="batch.rerun_stt", user_id=user.id, actor_email=user.email,
+        object_type="batch", object_id=str(batch.id),
+        details={
+            "count": len(rows),
+            "asr_provider": payload.asr_provider,
+            "asr_model": payload.asr_model,
+        },
+        ip=meta.ip, user_agent=meta.user_agent,
+    )
+    await session.commit()
+    for rec in rows:
+        queue.celery_client.send_task(
+            "voiceqa.pipeline.transcribe",
+            args=[str(rec.id), payload.asr_provider, payload.asr_model],
+            queue="stt",
+        )
+    return BulkRerunOut(queued=len(rows))

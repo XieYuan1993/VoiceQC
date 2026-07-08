@@ -6,6 +6,7 @@ import {
   FileAudio,
   Loader2,
   RefreshCw,
+  RotateCcw,
   UploadCloud,
 } from "lucide-react";
 import Link from "next/link";
@@ -17,6 +18,17 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -24,7 +36,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { apiCall, getApiErrorMessage, uploadDirectToStorage } from "@/lib/api";
+import { apiCall, apiJson, getApiErrorMessage, uploadDirectToStorage } from "@/lib/api";
 import { formatBytes, formatDateTime, formatDuration } from "@/lib/format";
 import type { Batch, RecordingList, UploadFileResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -33,6 +45,12 @@ const ACCEPTED_EXTS: readonly string[] = [".wav", ".mp3", ".m4a", ".flac", ".ogg
 const UPLOAD_CONCURRENCY = 3;
 const POLL_MS = 5000;
 const REC_PAGE_SIZE = 50;
+const ASR_PROVIDER_OPTIONS = [
+  { value: "tencent", label: "Tencent ASR", model: "16k_zh_en" },
+  { value: "qwen", label: "Qwen ASR", model: "qwen3-asr-flash" },
+  { value: "google", label: "Google STT", model: "chirp_2" },
+  { value: "gemini", label: "Gemini audio", model: "gemini-3.5-flash" },
+] as const;
 
 type UploadState = "queued" | "uploading" | "done" | "duplicate" | "error";
 
@@ -73,6 +91,10 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
   const [retrying, setRetrying] = React.useState(false);
   const [actionError, setActionError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
+  const [rerunOpen, setRerunOpen] = React.useState(false);
+  const [rerunProvider, setRerunProvider] = React.useState("tencent");
+  const [rerunModel, setRerunModel] = React.useState("16k_zh_en");
+  const [rerunningStt, setRerunningStt] = React.useState(false);
 
   const batchRef = React.useRef<Batch | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -232,6 +254,33 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
     }
   }
 
+  function onRerunProviderChange(provider: string) {
+    setRerunProvider(provider);
+    setRerunModel(ASR_PROVIDER_OPTIONS.find((opt) => opt.value === provider)?.model ?? "");
+  }
+
+  async function onRerunStt() {
+    setActionError(null);
+    setNotice(null);
+    setRerunningStt(true);
+    try {
+      const model = rerunModel.trim();
+      const res = await apiJson<{ queued: number }>(`/api/batches/${batchId}/rerun-stt`, "post", {
+        body: {
+          asr_provider: rerunProvider,
+          asr_model: model.length > 0 ? model : null,
+        },
+      });
+      setNotice(`Queued ${res.queued} recording${res.queued === 1 ? "" : "s"} for STT rerun.`);
+      setRerunOpen(false);
+      refresh();
+    } catch (e) {
+      setActionError(getApiErrorMessage(e));
+    } finally {
+      setRerunningStt(false);
+    }
+  }
+
   if (loadError !== null && batch === null) {
     return (
       <div className="space-y-4">
@@ -302,6 +351,16 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
                 <RefreshCw className="mr-2 h-4 w-4" aria-hidden />
               )}
               Retry failed ({counts.failed})
+            </Button>
+          )}
+          {canManage && batch.status !== "open" && serverFileCount > 0 && (
+            <Button variant="outline" onClick={() => setRerunOpen(true)} disabled={rerunningStt}>
+              {rerunningStt ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+              ) : (
+                <RotateCcw className="mr-2 h-4 w-4" aria-hidden />
+              )}
+              Rerun STT
             </Button>
           )}
           {canManage && batch.status === "open" && (
@@ -566,6 +625,51 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={rerunOpen} onOpenChange={setRerunOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rerun STT</DialogTitle>
+            <DialogDescription>
+              Re-transcribe recordings in this batch and replace existing transcripts.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="asr-provider">ASR provider</Label>
+              <Select
+                id="asr-provider"
+                value={rerunProvider}
+                onChange={(e) => onRerunProviderChange(e.target.value)}
+              >
+                {ASR_PROVIDER_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="asr-model">Model</Label>
+              <Input
+                id="asr-model"
+                value={rerunModel}
+                onChange={(e) => setRerunModel(e.target.value)}
+                placeholder="Provider default"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRerunOpen(false)} disabled={rerunningStt}>
+              Cancel
+            </Button>
+            <Button onClick={onRerunStt} disabled={rerunningStt}>
+              {rerunningStt && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />}
+              Rerun
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

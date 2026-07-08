@@ -207,15 +207,11 @@ def load_terms_csv() -> list[dict]:
 # is missing, so admin edits survive re-seeding.
 DEFAULT_SETTINGS: dict[str, object] = {
     "audio.broker_channel": "left",
-    # ASR provider on noisy Cantonese telephony. "qwen" (Qwen3-ASR) is the
-    # default: verbatim/faithful with word-level timestamps — the right choice
-    # for compliance auditing, where you check what was literally said. ITN is on
-    # so spoken numbers become digits ("203298"). "gemini" (multimodal) reads
-    # more smoothly and handles English code-switching well, but being LLM-based
-    # it can paraphrase/alter wording (a verbatim risk) and its timestamps are
-    # approximate. "chirp_2" (Google STT) is the weakest. Switch here.
-    "asr.provider": "qwen",
-    "asr.model": "qwen3-asr-flash",
+    # ASR provider on noisy Cantonese telephony. Tencent's 16k_zh_en is the
+    # "普方英大模型" and currently gives the best Quam test results. Existing
+    # projects keep their saved setting; this default only applies to new seeds.
+    "asr.provider": "tencent",
+    "asr.model": "16k_zh_en",
     "asr.language_mode": "yue-Hant-HK",
     # Industry terms passed to the ASR as a glossary hint. Safe for Gemini (a
     # prompt hint); on chirp use with care (high boost degrades output).
