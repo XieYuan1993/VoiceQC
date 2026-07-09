@@ -128,7 +128,7 @@ class SharedSettings(BaseSettings):
     # in-flight recordings failed so operators can retry/rerun them.
     RECORDING_CONVERT_TIMEOUT_SECONDS: int = 30 * 60
     RECORDING_STT_TIMEOUT_SECONDS: int = 30 * 60
-    RECORDING_EVAL_TIMEOUT_SECONDS: int = 30 * 60
+    RECORDING_EVAL_TIMEOUT_SECONDS: int = 60 * 60
 
     LOG_LEVEL: str = "INFO"
 

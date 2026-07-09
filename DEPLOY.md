@@ -86,7 +86,7 @@ boot** if any of `NEXTAUTH_SECRET`, `INTERNAL_API_SECRET`, or
 | `TENCENT_SECRET_ID` / `TENCENT_SECRET_KEY` | worker | required when `asr.provider=tencent`; use `asr.model=16k_zh_en` for Tencent's "普方英大模型" |
 | `TENCENT_ASR_REGION` | worker | `ap-guangzhou` by default |
 | `ASR_AUDIO_PROXY_BASE_URL` | worker | recommended for Tencent ASR; set to the public API base URL so Tencent downloads audio through VoiceQA instead of Google Storage directly |
-| `RECORDING_CONVERT_TIMEOUT_SECONDS` / `RECORDING_STT_TIMEOUT_SECONDS` / `RECORDING_EVAL_TIMEOUT_SECONDS` | worker | optional pipeline timeout thresholds; defaults are 1800 / 1800 / 1800 seconds |
+| `RECORDING_CONVERT_TIMEOUT_SECONDS` / `RECORDING_STT_TIMEOUT_SECONDS` / `RECORDING_EVAL_TIMEOUT_SECONDS` | worker | optional pipeline timeout thresholds; defaults are 1800 / 1800 / 3600 seconds |
 | `SMTP_HOST/PORT/USER/PASS`, `MAIL_FROM` | api | real relay |
 
 The three "MUST be identical across api+web" secrets are the cross-tier trust
