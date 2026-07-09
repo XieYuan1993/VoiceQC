@@ -10,6 +10,7 @@ import datetime
 import hashlib
 import hmac
 import json
+import re
 import time
 from typing import Any
 
@@ -24,6 +25,9 @@ ENDPOINT = "asr.tencentcloudapi.com"
 SERVICE = "asr"
 VERSION = "2019-06-14"
 URL_EXPIRES_SECONDS = 4 * 60 * 60
+_RESULT_LINE_RE = re.compile(
+    r"^\[(?P<start_min>\d+):(?P<start_sec>\d+(?:\.\d+)?),(?P<end_min>\d+):(?P<end_sec>\d+(?:\.\d+)?)\]\s*(?P<text>.*)$"
+)
 
 
 def _hmac_sha256(key: bytes, msg: str) -> bytes:
@@ -136,6 +140,42 @@ def _parse_detail(detail: list[dict[str, Any]]) -> list[SegmentResult]:
     return segments
 
 
+def _timestamp_ms(minutes: str, seconds: str) -> int:
+    return int((int(minutes) * 60 + float(seconds)) * 1000)
+
+
+def _parse_result_text(result: str) -> list[SegmentResult]:
+    segments: list[SegmentResult] = []
+    cursor_ms = 0
+    for raw_line in result.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        match = _RESULT_LINE_RE.match(line)
+        if match:
+            start_ms = _timestamp_ms(match.group("start_min"), match.group("start_sec"))
+            end_ms = _timestamp_ms(match.group("end_min"), match.group("end_sec"))
+            text = match.group("text").strip()
+        else:
+            start_ms = cursor_ms
+            end_ms = cursor_ms
+            text = line
+        if not text:
+            continue
+        cursor_ms = max(cursor_ms, end_ms)
+        segments.append(
+            SegmentResult(
+                start_ms=start_ms,
+                end_ms=end_ms,
+                text=text,
+                language="zh-Hant",
+                confidence=None,
+                words=None,
+            )
+        )
+    return segments
+
+
 class TencentASR:
     provider = "tencent"
 
@@ -169,7 +209,10 @@ class TencentASR:
             payload: dict[str, Any] = {
                 "EngineModelType": engine,
                 "ChannelNum": 1,
-                "ResTextFormat": 2,
+                # Keep Tencent results compact. Word-level ResultDetail can be
+                # huge for long calls and has caused STT worker OOMs; Result
+                # still includes segment timestamps.
+                "ResTextFormat": 0,
                 "SourceType": 0,
                 "Url": url,
                 "SpeakerDiarization": 0,
@@ -199,10 +242,13 @@ class TencentASR:
                 err = response["Data"].get("ErrorMsg") or "recognition failed"
                 raise RuntimeError(f"Tencent ASR task {task_id} failed: {err}")
             detail = response["Data"].get("ResultDetail") or []
+            segments = _parse_result_text(str(response["Data"].get("Result") or ""))
+            if not segments and detail:
+                segments = _parse_detail(detail)
             results.append(
                 FileResult(
                     uri=uri,
-                    segments=_parse_detail(detail),
+                    segments=segments,
                     language_detected="zh-Hant",
                     billed_seconds=float(response["Data"].get("AudioDuration") or 0),
                 )

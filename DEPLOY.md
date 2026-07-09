@@ -87,6 +87,7 @@ boot** if any of `NEXTAUTH_SECRET`, `INTERNAL_API_SECRET`, or
 | `TENCENT_ASR_REGION` | worker | `ap-guangzhou` by default |
 | `ASR_AUDIO_PROXY_BASE_URL` | worker | recommended for Tencent ASR; set to the public API base URL so Tencent downloads audio through VoiceQA instead of Google Storage directly |
 | `RECORDING_CONVERT_TIMEOUT_SECONDS` / `RECORDING_STT_TIMEOUT_SECONDS` / `RECORDING_EVAL_TIMEOUT_SECONDS` | worker | optional pipeline timeout thresholds; defaults are 1800 / 1800 / 3600 seconds |
+| `RECORDING_RESUME_STALE_SECONDS` | worker | optional stale-task recovery threshold; default 600 seconds before re-enqueueing in-flight recordings |
 | `WORKER_MAX_TASKS_PER_CHILD` / `WORKER_MAX_MEMORY_PER_CHILD` | worker | optional Celery child recycling controls; useful for STT memory pressure (`max-memory` is in KiB) |
 | `SMTP_HOST/PORT/USER/PASS`, `MAIL_FROM` | api | real relay |
 

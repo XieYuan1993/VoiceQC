@@ -9,6 +9,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 
+from celery import chain
 from loguru import logger
 from sqlalchemy import func, select
 from voiceqa_shared.db_models import Recording, UploadBatch
@@ -28,6 +29,10 @@ def _timeout_for_status(status: str) -> timedelta:
         "evaluating": settings.RECORDING_EVAL_TIMEOUT_SECONDS,
     }.get(status, settings.RECORDING_CONVERT_TIMEOUT_SECONDS)
     return timedelta(seconds=max(60, int(seconds)))
+
+
+def _resume_after() -> timedelta:
+    return timedelta(seconds=max(60, int(settings.RECORDING_RESUME_STALE_SECONDS)))
 
 
 def _stage_for_status(status: str) -> str:
@@ -56,9 +61,13 @@ def update_progress(batch_id: str) -> None:
 
 @app.task(name="voiceqa.batch.sweep_stuck")
 def sweep_stuck() -> None:
-    """Beat task: fail recordings stuck in a non-terminal state past timeout."""
+    """Beat task: resume stale recordings, then fail them if they exceed timeout."""
+    from worker.tasks.pipeline import normalize_audio, transcribe
+
     now = datetime.now(UTC)
     failed: list[tuple[str, str, str, int]] = []
+    redispatched: list[tuple[str, str]] = []
+    resume_after = _resume_after()
     with SessionLocal() as session:
         rows = (
             session.execute(
@@ -75,20 +84,40 @@ def sweep_stuck() -> None:
         for rec in rows:
             age = now - rec.updated_at
             timeout = _timeout_for_status(rec.status)
-            if age < timeout:
+            if age >= timeout:
+                status = rec.status
+                rec.failed_stage = _stage_for_status(status)
+                rec.status = "failed"
+                rec.error = (
+                    f"{status} timed out after {int(age.total_seconds() // 60)} minutes "
+                    f"(limit {int(timeout.total_seconds() // 60)} minutes)"
+                )
+                rec.stt_operation_name = None if status == "transcribing" else rec.stt_operation_name
+                failed.append((str(rec.id), str(rec.batch_id), status, int(age.total_seconds())))
                 continue
-            status = rec.status
-            rec.failed_stage = _stage_for_status(status)
-            rec.status = "failed"
-            rec.error = (
-                f"{status} timed out after {int(age.total_seconds() // 60)} minutes "
-                f"(limit {int(timeout.total_seconds() // 60)} minutes)"
-            )
-            rec.stt_operation_name = None if status == "transcribing" else rec.stt_operation_name
-            failed.append((str(rec.id), str(rec.batch_id), status, int(age.total_seconds())))
+
+            if age >= resume_after:
+                status = rec.status
+                rec.updated_at = now
+                rec.error = None
+                rec.failed_stage = None
+                redispatched.append((str(rec.id), status))
         session.commit()
 
-    for _rid, batch_id in failed:
+    for rid, status in redispatched:
+        if status == "evaluating":
+            from worker.tasks.evaluate import evaluate
+
+            evaluate.delay(rid)
+        elif status == "transcribing":
+            transcribe.delay(rid)
+        else:
+            chain(normalize_audio.si(rid), transcribe.si(rid)).apply_async()
+    for _rid, batch_id, _status, _age_seconds in failed:
         update_progress.delay(batch_id)
-    if failed:
-        logger.warning("sweep_stuck: {} recording(s) failed by timeout: {}", len(failed), failed)
+    if redispatched or failed:
+        logger.warning(
+            "sweep_stuck: {} redispatched, {} failed by timeout",
+            len(redispatched),
+            len(failed),
+        )

@@ -341,6 +341,7 @@ def transcribe(
                 exc = RuntimeError("stt timed out waiting for ASR result")
                 _fail(recording_id, "stt", exc)
                 raise exc
+            _touch_updated_at(recording_id)
             raise self.retry(countdown=20)
 
         role_by_uri = {f.uri: f.channel_role for f in files}

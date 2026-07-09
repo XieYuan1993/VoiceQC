@@ -169,7 +169,7 @@ services:
       - key: WORKER_QUEUES
         value: stt
       - key: WORKER_CONCURRENCY
-        value: "1"
+        value: "2"
       - key: WORKER_MAX_TASKS_PER_CHILD
         value: "5"
       - key: WORKER_MAX_MEMORY_PER_CHILD
