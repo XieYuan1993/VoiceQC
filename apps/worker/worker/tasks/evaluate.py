@@ -612,6 +612,7 @@ def evaluate(self, recording_id: str) -> None:
             ],
         )
         session.add(evaluation)
+        rec.updated_at = datetime.now(UTC)
         session.commit()
         evaluation_id = evaluation.id
         batch_id = str(rec.batch_id)
