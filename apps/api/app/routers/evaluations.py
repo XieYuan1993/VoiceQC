@@ -170,6 +170,8 @@ async def rerun_evaluation(
 
     rec.status = "evaluating"
     rec.failed_stage = None
+    rec.error = None
+    rec.attempts = 0
     # Reactivate the batch so its rollup status recomputes (else it stays frozen).
     batch = await session.get(UploadBatch, rec.batch_id)
     if batch is not None and batch.status in ("completed", "completed_with_errors", "failed"):

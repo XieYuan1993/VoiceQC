@@ -319,6 +319,8 @@ async def reevaluate_recordings(
             continue
         r.status = "evaluating"
         r.failed_stage = None
+        r.error = None
+        r.attempts = 0
         batch_ids.add(r.batch_id)
         to_enqueue.append(str(r.id))
     for bid in batch_ids:
@@ -589,6 +591,7 @@ async def reprocess(
 
     rec.error = None
     rec.failed_stage = None
+    rec.attempts = 0
     if from_stage != "eval":
         rec.stt_operation_name = None
     rec.status = {"convert": "uploaded", "stt": "transcribing", "eval": "evaluating"}[from_stage]

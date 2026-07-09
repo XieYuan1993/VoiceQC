@@ -487,6 +487,7 @@ async def retry_failed(
         rec.error = None
         rec.failed_stage = None
         rec.status = status_
+        rec.attempts = 0
         plans.append((str(rec.id), stage))
     if plans and batch.status == "completed_with_errors":
         batch.status = "processing"
@@ -527,6 +528,7 @@ async def rerun_batch_stt(
         rec.failed_stage = None
         rec.error = None
         rec.stt_operation_name = None
+        rec.attempts = 0
     if rows:
         batch.status = "processing"
     log_audit(

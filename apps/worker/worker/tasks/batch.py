@@ -35,6 +35,10 @@ def _resume_after() -> timedelta:
     return timedelta(seconds=max(60, int(settings.RECORDING_RESUME_STALE_SECONDS)))
 
 
+def _max_resume_attempts() -> int:
+    return max(0, int(settings.RECORDING_RESUME_MAX_ATTEMPTS))
+
+
 def _stage_for_status(status: str) -> str:
     return {"transcribing": "stt", "evaluating": "eval"}.get(status, "convert")
 
@@ -68,6 +72,7 @@ def sweep_stuck() -> None:
     failed: list[tuple[str, str, str, int]] = []
     redispatched: list[tuple[str, str]] = []
     resume_after = _resume_after()
+    max_resume_attempts = _max_resume_attempts()
     with SessionLocal() as session:
         rows = (
             session.execute(
@@ -84,14 +89,19 @@ def sweep_stuck() -> None:
         for rec in rows:
             age = now - rec.updated_at
             timeout = _timeout_for_status(rec.status)
-            if age >= timeout:
+            timed_out = age >= timeout
+            stale_exhausted = age >= resume_after and rec.attempts >= max_resume_attempts
+            if timed_out or stale_exhausted:
                 status = rec.status
                 rec.failed_stage = _stage_for_status(status)
                 rec.status = "failed"
-                rec.error = (
-                    f"{status} timed out after {int(age.total_seconds() // 60)} minutes "
+                reason = (
+                    f"timed out after {int(age.total_seconds() // 60)} minutes "
                     f"(limit {int(timeout.total_seconds() // 60)} minutes)"
+                    if timed_out
+                    else f"stale after {rec.attempts} recovery attempts"
                 )
+                rec.error = f"{status} {reason}"
                 rec.stt_operation_name = None if status == "transcribing" else rec.stt_operation_name
                 failed.append((str(rec.id), str(rec.batch_id), status, int(age.total_seconds())))
                 continue
@@ -101,6 +111,7 @@ def sweep_stuck() -> None:
                 rec.updated_at = now
                 rec.error = None
                 rec.failed_stage = None
+                rec.attempts += 1
                 redispatched.append((str(rec.id), status))
         session.commit()
 
