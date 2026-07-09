@@ -82,7 +82,7 @@ boot** if any of `NEXTAUTH_SECRET`, `INTERNAL_API_SECRET`, or
 | `GOOGLE_STT_LOCATION` | worker | `asia-southeast1` |
 | `VERTEX_LLM_LOCATION` | worker | `asia-southeast1` (3.x flash may force `global` — adapter falls back with a logged warning) |
 | `GCS_BUCKET_AUDIO` | api, worker | the `asia-east2` bucket |
-| `GOOGLE_STT_MODEL` / `VERTEX_LLM_MODEL` | worker | `chirp_2` / `gemini-3.5-flash` (also editable at runtime via Settings) |
+| `GOOGLE_STT_MODEL` / `LLM_PROVIDER` / `DASHSCOPE_LLM_MODEL` | worker | `chirp_2` / `dashscope` / `qwen3.7-max` (also editable at runtime via Settings) |
 | `TENCENT_SECRET_ID` / `TENCENT_SECRET_KEY` | worker | required when `asr.provider=tencent`; use `asr.model=16k_zh_en` for Tencent's "普方英大模型" |
 | `TENCENT_ASR_REGION` | worker | `ap-guangzhou` by default |
 | `ASR_AUDIO_PROXY_BASE_URL` | worker | recommended for Tencent ASR; set to the public API base URL so Tencent downloads audio through VoiceQA instead of Google Storage directly |

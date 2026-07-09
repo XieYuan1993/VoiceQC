@@ -45,9 +45,9 @@ services:
       - key: VERTEX_LLM_MODEL
         value: gemini-3.5-flash
       - key: LLM_PROVIDER
-        value: gemini
-      - key: LLM_FALLBACK_PROVIDER
         value: dashscope
+      - key: LLM_FALLBACK_PROVIDER
+        value: ""
       - key: DASHSCOPE_LLM_MODEL
         value: qwen3.7-max
       - key: NEXTAUTH_URL
@@ -101,9 +101,9 @@ services:
       - key: VERTEX_LLM_MODEL
         value: gemini-3.5-flash
       - key: LLM_PROVIDER
-        value: gemini
-      - key: LLM_FALLBACK_PROVIDER
         value: dashscope
+      - key: LLM_FALLBACK_PROVIDER
+        value: ""
       - key: DASHSCOPE_LLM_MODEL
         value: qwen3.7-max
       - key: WORKER_QUEUES
@@ -161,9 +161,9 @@ services:
       - key: VERTEX_LLM_MODEL
         value: gemini-3.5-flash
       - key: LLM_PROVIDER
-        value: gemini
-      - key: LLM_FALLBACK_PROVIDER
         value: dashscope
+      - key: LLM_FALLBACK_PROVIDER
+        value: ""
       - key: DASHSCOPE_LLM_MODEL
         value: qwen3.7-max
       - key: WORKER_QUEUES
@@ -225,15 +225,15 @@ services:
       - key: VERTEX_LLM_MODEL
         value: gemini-3.5-flash
       - key: LLM_PROVIDER
-        value: gemini
-      - key: LLM_FALLBACK_PROVIDER
         value: dashscope
+      - key: LLM_FALLBACK_PROVIDER
+        value: ""
       - key: DASHSCOPE_LLM_MODEL
         value: qwen3.7-max
       - key: WORKER_QUEUES
         value: llm
       - key: WORKER_CONCURRENCY
-        value: "2"
+        value: "4"
       - key: WORKER_BEAT
         value: "false"
       - key: WORKER_RUN_MIGRATIONS

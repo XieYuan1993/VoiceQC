@@ -103,13 +103,13 @@ class SharedSettings(BaseSettings):
     GOOGLE_STT_MODEL: str = "chirp_2"
     VERTEX_LLM_MODEL: str = "gemini-3.5-flash"
 
-    # LLM provider for call evaluation: "gemini" (Vertex AI) or "dashscope" (Qwen).
-    LLM_PROVIDER: str = "gemini"
+    # LLM provider for call evaluation: "dashscope" (Qwen) or "gemini" (Vertex AI).
+    LLM_PROVIDER: str = "dashscope"
     # If set, the worker tries LLM_PROVIDER first and falls back to this provider
     # on connectivity / timeout errors (e.g. LLM_FALLBACK_PROVIDER=dashscope).
     LLM_FALLBACK_PROVIDER: str = ""
     # DashScope LLM model (used when LLM_PROVIDER=dashscope or as fallback).
-    DASHSCOPE_LLM_MODEL: str = "qwen-max"
+    DASHSCOPE_LLM_MODEL: str = "qwen3.7-max"
 
     # Qwen / Alibaba Cloud Model Studio (DashScope) — optional ASR provider.
     DASHSCOPE_API_KEY: SecretStr = SecretStr("")
