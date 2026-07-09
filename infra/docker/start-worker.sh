@@ -9,4 +9,11 @@ BEAT_ARGS=""
 if [ "${WORKER_BEAT:-false}" = "true" ]; then
   BEAT_ARGS="-B"
 fi
-exec celery -A worker.celery_app worker $BEAT_ARGS -Q "${WORKER_QUEUES:-default,audio,stt,llm}" --loglevel=info --concurrency="${WORKER_CONCURRENCY:-3}"
+CHILD_ARGS=""
+if [ -n "${WORKER_MAX_TASKS_PER_CHILD:-}" ]; then
+  CHILD_ARGS="$CHILD_ARGS --max-tasks-per-child=${WORKER_MAX_TASKS_PER_CHILD}"
+fi
+if [ -n "${WORKER_MAX_MEMORY_PER_CHILD:-}" ]; then
+  CHILD_ARGS="$CHILD_ARGS --max-memory-per-child=${WORKER_MAX_MEMORY_PER_CHILD}"
+fi
+exec celery -A worker.celery_app worker $BEAT_ARGS $CHILD_ARGS -Q "${WORKER_QUEUES:-default,audio,stt,llm}" --loglevel=info --concurrency="${WORKER_CONCURRENCY:-3}"

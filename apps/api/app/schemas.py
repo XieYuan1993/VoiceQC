@@ -73,6 +73,7 @@ class BatchOut(BaseModel):
     total_files: int
     created_at: datetime
     finalized_at: datetime | None
+    last_run_at: datetime | None = None
     counts: BatchCounts | None = None
 
 

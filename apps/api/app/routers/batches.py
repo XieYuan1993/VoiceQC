@@ -55,7 +55,19 @@ async def _counts(session: AsyncSession, batch_id: uuid.UUID) -> BatchCounts:
     return BatchCounts(**{status_: n for status_, n in rows})
 
 
-def _out(batch: UploadBatch, counts: BatchCounts | None = None) -> BatchOut:
+async def _last_run_at(session: AsyncSession, batch_id: uuid.UUID) -> datetime | None:
+    return (
+        await session.execute(
+            select(func.max(Recording.updated_at)).where(Recording.batch_id == batch_id)
+        )
+    ).scalar_one_or_none()
+
+
+def _out(
+    batch: UploadBatch,
+    counts: BatchCounts | None = None,
+    last_run_at: datetime | None = None,
+) -> BatchOut:
     return BatchOut(
         id=batch.id,
         name=batch.name,
@@ -64,6 +76,7 @@ def _out(batch: UploadBatch, counts: BatchCounts | None = None) -> BatchOut:
         total_files=batch.total_files,
         created_at=batch.created_at,
         finalized_at=batch.finalized_at,
+        last_run_at=last_run_at if batch.finalized_at is not None else None,
         counts=counts,
     )
 
@@ -127,7 +140,16 @@ async def list_batches(
         .scalars()
         .all()
     )
-    items = [_out(b, await _counts(session, b.id)) for b in batches]
+    batch_ids = [b.id for b in batches]
+    last_run_rows = (
+        await session.execute(
+            select(Recording.batch_id, func.max(Recording.updated_at))
+            .where(Recording.batch_id.in_(batch_ids))
+            .group_by(Recording.batch_id)
+        )
+    ).all()
+    last_run_by_batch = {batch_id: last_run_at for batch_id, last_run_at in last_run_rows}
+    items = [_out(b, await _counts(session, b.id), last_run_by_batch.get(b.id)) for b in batches]
     return BatchListOut(items=items, total=total, page=page, page_size=page_size)
 
 
@@ -164,7 +186,7 @@ async def get_batch(
     session: AsyncSession = Depends(get_session),
 ) -> BatchOut:
     batch = await _get_batch(session, batch_id)
-    return _out(batch, await _counts(session, batch.id))
+    return _out(batch, await _counts(session, batch.id), await _last_run_at(session, batch.id))
 
 
 @router.post("/{batch_id}/direct-upload", response_model=DirectUploadInitOut)

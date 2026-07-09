@@ -132,6 +132,7 @@ export default async function BatchesPage({
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Files</TableHead>
                   <TableHead>Progress</TableHead>
+                  <TableHead>Last run</TableHead>
                   <TableHead>Created</TableHead>
                   {manage && <TableHead className="w-10" aria-label="Actions" />}
                 </TableRow>
@@ -154,6 +155,9 @@ export default async function BatchesPage({
                     <TableCell className="text-right tabular-nums">{fileCount(b)}</TableCell>
                     <TableCell>
                       <StageChips counts={b.counts} hideZero />
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-muted-foreground">
+                      {b.last_run_at ? formatDateTime(b.last_run_at) : "-"}
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-muted-foreground">
                       {formatDateTime(b.created_at)}

@@ -1563,6 +1563,8 @@ export interface components {
             created_at: string;
             /** Finalized At */
             finalized_at: string | null;
+            /** Last Run At */
+            last_run_at?: string | null;
             counts?: components["schemas"]["BatchCounts"] | null;
         };
         /** Body_dry_run_csv_api_txn_imports_csv_dry_run_post */
