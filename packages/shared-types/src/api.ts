@@ -2336,7 +2336,17 @@ export interface components {
              * Trade Date
              * Format: date
              */
-            trade_date: string;
+            trade_date?: string | null;
+            /**
+             * Trade Date From
+             * Format: date
+             */
+            trade_date_from?: string | null;
+            /**
+             * Trade Date To
+             * Format: date
+             */
+            trade_date_to?: string | null;
         };
         /** ReconRunOut */
         ReconRunOut: {
@@ -2350,6 +2360,16 @@ export interface components {
              * Format: date
              */
             trade_date: string;
+            /**
+             * Trade Date From
+             * Format: date
+             */
+            trade_date_from: string;
+            /**
+             * Trade Date To
+             * Format: date
+             */
+            trade_date_to: string;
             /** Status */
             status: string;
             /** Params Snapshot */

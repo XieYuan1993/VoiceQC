@@ -9,7 +9,7 @@ work is never redone (keyed by transaction/recording identity).
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from loguru import logger
@@ -66,6 +66,8 @@ def enqueue_recon_run(session, trade_date) -> str | None:
         ).scalars()
     }
     snapshot = {
+        "trade_date_from": trade_date.isoformat(),
+        "trade_date_to": trade_date.isoformat(),
         "weights": rows.get("recon.weights"),
         "thresholds": rows.get("recon.thresholds"),
         "time_window": rows.get("recon.time_window"),
@@ -107,18 +109,31 @@ def _passes_transaction_filters(txn: Transaction, filters: dict | None) -> bool:
         return True
     order_statuses = filters.get("order_statuses")
     execution_types = filters.get("execution_types")
-    if isinstance(order_statuses, list):
-        if _raw_value(txn.raw, "order_status") not in {str(v) for v in order_statuses}:
-            return False
-    if isinstance(execution_types, list):
-        if _raw_value(txn.raw, "execution_type") not in {str(v) for v in execution_types}:
-            return False
-    return True
+    if isinstance(order_statuses, list) and _raw_value(txn.raw, "order_status") not in {
+        str(v) for v in order_statuses
+    }:
+        return False
+    return not (
+        isinstance(execution_types, list)
+        and _raw_value(txn.raw, "execution_type") not in {str(v) for v in execution_types}
+    )
+
+
+def _date_range_from_snapshot(trade_date: date, snapshot: dict | None) -> tuple[date, date]:
+    snapshot = snapshot or {}
+    raw_from = snapshot.get("trade_date_from")
+    raw_to = snapshot.get("trade_date_to")
+    date_from = date.fromisoformat(raw_from) if isinstance(raw_from, str) else trade_date
+    date_to = date.fromisoformat(raw_to) if isinstance(raw_to, str) else date_from
+    if date_to < date_from:
+        date_to = date_from
+    return date_from, date_to
 
 
 def _load_views(
-    session, trade_date, transaction_filters: dict | None = None
+    session, trade_date_from, trade_date_to=None, transaction_filters: dict | None = None
 ) -> tuple[list[TxnView], list[InstrView], list[str]]:
+    trade_date_to = trade_date_to or trade_date_from
     txns = [
         TxnView(
             id=str(t.id),
@@ -134,18 +149,22 @@ def _load_views(
             channel=t.channel,
         )
         for t in session.execute(
-            select(Transaction).where(Transaction.trade_date == trade_date)
+            select(Transaction).where(
+                Transaction.trade_date >= trade_date_from,
+                Transaction.trade_date <= trade_date_to,
+            )
         ).scalars()
         if _passes_transaction_filters(t, transaction_filters)
     ]
 
-    day_start = datetime.combine(trade_date, time.min, tzinfo=HK)
+    day_start = datetime.combine(trade_date_from, time.min, tzinfo=HK)
+    day_end = datetime.combine(trade_date_to + timedelta(days=1), time.min, tzinfo=HK)
     recordings = (
         session.execute(
             select(Recording).where(
                 Recording.status == "completed",
                 Recording.call_started_at >= day_start,
-                Recording.call_started_at < day_start + timedelta(days=1),
+                Recording.call_started_at < day_end,
             )
         )
         .scalars()
@@ -216,6 +235,7 @@ def _load_views(
 
 
 def _carry_forward_map(session, run: ReconRun) -> dict[tuple, ReconItem]:
+    trade_date_from, trade_date_to = _date_range_from_snapshot(run.trade_date, run.params_snapshot)
     prev = session.execute(
         select(ReconRun)
         .where(
@@ -226,6 +246,10 @@ def _carry_forward_map(session, run: ReconRun) -> dict[tuple, ReconItem]:
         .order_by(ReconRun.started_at.desc())
         .limit(1)
     ).scalar_one_or_none()
+    if prev is not None:
+        prev_from, prev_to = _date_range_from_snapshot(prev.trade_date, prev.params_snapshot)
+        if (prev_from, prev_to) != (trade_date_from, trade_date_to):
+            prev = None
     if prev is None:
         return {}
     decided = (
@@ -239,8 +263,7 @@ def _carry_forward_map(session, run: ReconRun) -> dict[tuple, ReconItem]:
         .all()
     )
     return {
-        (item.item_type, str(item.transaction_id), str(item.recording_id)): item
-        for item in decided
+        (item.item_type, str(item.transaction_id), str(item.recording_id)): item for item in decided
     }
 
 
@@ -261,9 +284,14 @@ def run(self, run_id: str) -> None:
             return
         try:
             params = _params_from_snapshot(recon_run.params_snapshot)
+            trade_date_from, trade_date_to = _date_range_from_snapshot(
+                recon_run.trade_date,
+                recon_run.params_snapshot,
+            )
             txns, instrs, zero_instr = _load_views(
                 session,
-                recon_run.trade_date,
+                trade_date_from,
+                trade_date_to,
                 (recon_run.params_snapshot or {}).get("transaction_filters"),
             )
 

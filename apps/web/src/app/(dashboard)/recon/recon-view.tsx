@@ -84,10 +84,21 @@ interface RunFilters {
   execution_types: string[];
 }
 
+interface RunRange {
+  from: string;
+  to: string;
+}
+
 const DEFAULT_RUN_FILTERS: RunFilters = {
   order_statuses: ORDER_STATUS_OPTIONS,
   execution_types: EXECUTION_TYPE_OPTIONS,
 };
+
+function runRangeLabel(run: Pick<ReconRun, "trade_date" | "trade_date_from" | "trade_date_to">) {
+  const from = run.trade_date_from || run.trade_date;
+  const to = run.trade_date_to || from;
+  return from === to ? from : `${from} - ${to}`;
+}
 
 function RunStatsChips({ stats }: { stats: ReconRun["stats"] }) {
   if (!stats) return null;
@@ -155,12 +166,12 @@ function toggleValue(values: string[], value: string): string[] {
 }
 
 function RunFiltersDialog({
-  tradeDate,
+  range,
   pending,
   onCancel,
   onConfirm,
 }: {
-  tradeDate: string;
+  range: RunRange;
   pending: boolean;
   onCancel: () => void;
   onConfirm: (filters: RunFilters) => void;
@@ -178,7 +189,8 @@ function RunFiltersDialog({
         <DialogHeader>
           <DialogTitle>Run reconciliation</DialogTitle>
           <DialogDescription>
-            Select which imported transaction rows participate in matching for {tradeDate}.
+            Select which imported transaction rows participate in matching for{" "}
+            {range.from === range.to ? range.from : `${range.from} - ${range.to}`}.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -273,10 +285,11 @@ export function ReconView({ canManage }: { canManage: boolean }) {
   const [runsError, setRunsError] = React.useState<string | null>(null);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
 
-  const [tradeDate, setTradeDate] = React.useState(todayISO());
+  const [tradeDateFrom, setTradeDateFrom] = React.useState(todayISO());
+  const [tradeDateTo, setTradeDateTo] = React.useState(todayISO());
   const [creating, setCreating] = React.useState(false);
   const [actionError, setActionError] = React.useState<string | null>(null);
-  const [pendingRunDate, setPendingRunDate] = React.useState<string | null>(null);
+  const [pendingRunRange, setPendingRunRange] = React.useState<RunRange | null>(null);
 
   const [tab, setTab] = React.useState<Bucket>("matched");
   const [page, setPage] = React.useState(1);
@@ -379,16 +392,20 @@ export function ReconView({ canManage }: { canManage: boolean }) {
     void loadItems();
   }, [loadItems, selectedId, selectedStatus]);
 
-  async function runFor(dateStr: string, filters: RunFilters) {
-    if (!dateStr) return;
+  async function runFor(range: RunRange, filters: RunFilters) {
+    if (!range.from || !range.to) return;
     setCreating(true);
     setActionError(null);
     try {
       const run = await apiCall("/api/recon/runs", "post", {
-        body: { trade_date: dateStr, transaction_filters: filters },
+        body: {
+          trade_date_from: range.from,
+          trade_date_to: range.to,
+          transaction_filters: filters,
+        },
       });
       setSelectedId(run.id);
-      setPendingRunDate(null);
+      setPendingRunRange(null);
       await loadRuns();
     } catch (e) {
       setActionError(getApiErrorMessage(e));
@@ -400,8 +417,8 @@ export function ReconView({ canManage }: { canManage: boolean }) {
   // Re-running a date creates a fresh run; the worker carries prior confirm/
   // reject/manual-link decisions forward, so a re-run never loses review work.
   function onRun() {
-    if (!tradeDate) return;
-    setPendingRunDate(tradeDate);
+    if (!tradeDateFrom || !tradeDateTo) return;
+    setPendingRunRange({ from: tradeDateFrom, to: tradeDateTo });
   }
 
   // Cross-origin API (:7870) — an <a href> would not carry the session cookie
@@ -419,7 +436,7 @@ export function ReconView({ canManage }: { canManage: boolean }) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `recon-${selected.trade_date}.csv`;
+      a.download = `recon-${runRangeLabel(selected)}.csv`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -458,15 +475,38 @@ export function ReconView({ canManage }: { canManage: boolean }) {
           </p>
         </div>
         {canManage && (
-          <div className="flex items-center gap-2">
-            <Input
-              type="date"
-              value={tradeDate}
-              onChange={(e) => setTradeDate(e.target.value)}
-              className="w-44"
-              aria-label="Trade date to reconcile"
-            />
-            <Button onClick={onRun} disabled={creating || !tradeDate}>
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="space-y-1">
+              <Label htmlFor="recon-date-from" className="text-xs text-muted-foreground">
+                From
+              </Label>
+              <Input
+                id="recon-date-from"
+                type="date"
+                value={tradeDateFrom}
+                onChange={(e) => {
+                  setTradeDateFrom(e.target.value);
+                  if (tradeDateTo < e.target.value) setTradeDateTo(e.target.value);
+                }}
+                className="w-40"
+                aria-label="Trade date range start"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="recon-date-to" className="text-xs text-muted-foreground">
+                To
+              </Label>
+              <Input
+                id="recon-date-to"
+                type="date"
+                value={tradeDateTo}
+                min={tradeDateFrom}
+                onChange={(e) => setTradeDateTo(e.target.value)}
+                className="w-40"
+                aria-label="Trade date range end"
+              />
+            </div>
+            <Button onClick={onRun} disabled={creating || !tradeDateFrom || !tradeDateTo}>
               {creating ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
               ) : (
@@ -518,7 +558,7 @@ export function ReconView({ canManage }: { canManage: boolean }) {
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
-                  <TableHead>Trade date</TableHead>
+                  <TableHead>Trade date(s)</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Started</TableHead>
                   <TableHead>Results</TableHead>
@@ -539,7 +579,7 @@ export function ReconView({ canManage }: { canManage: boolean }) {
                       r.id === selectedId && "bg-muted/60 hover:bg-muted/60",
                     )}
                   >
-                    <TableCell className="whitespace-nowrap font-medium">{r.trade_date}</TableCell>
+                    <TableCell className="whitespace-nowrap font-medium">{runRangeLabel(r)}</TableCell>
                     <TableCell>
                       <StatusBadge status={r.status} />
                     </TableCell>
@@ -567,7 +607,7 @@ export function ReconView({ canManage }: { canManage: boolean }) {
         <div className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <h2 className="flex items-center gap-3 text-lg font-semibold">
-              Run · {selected.trade_date}
+              Run · {runRangeLabel(selected)}
               <StatusBadge status={selected.status} />
               {selected.status === "running" && (
                 <Loader2
@@ -580,9 +620,14 @@ export function ReconView({ canManage }: { canManage: boolean }) {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setPendingRunDate(selected.trade_date)}
+                onClick={() =>
+                  setPendingRunRange({
+                    from: selected.trade_date_from || selected.trade_date,
+                    to: selected.trade_date_to || selected.trade_date_from || selected.trade_date,
+                  })
+                }
                 disabled={creating || selected.status === "running"}
-                title="Re-run reconciliation for this date with the latest trades and calls"
+                title="Re-run reconciliation for this date range with the latest trades and calls"
               >
                 {creating ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
@@ -878,19 +923,19 @@ export function ReconView({ canManage }: { canManage: boolean }) {
         <ReviewDrawer
           key={drawerItem.id}
           item={drawerItem}
-          runTradeDate={selected.trade_date}
+          runTradeDate={selected.trade_date_from || selected.trade_date}
           canReview={canManage}
           onClose={() => setDrawerId(null)}
           onUpdated={onItemUpdated}
         />
       )}
 
-      {pendingRunDate !== null && (
+      {pendingRunRange !== null && (
         <RunFiltersDialog
-          tradeDate={pendingRunDate}
+          range={pendingRunRange}
           pending={creating}
-          onCancel={() => setPendingRunDate(null)}
-          onConfirm={(filters) => void runFor(pendingRunDate, filters)}
+          onCancel={() => setPendingRunRange(null)}
+          onConfirm={(filters) => void runFor(pendingRunRange, filters)}
         />
       )}
     </div>

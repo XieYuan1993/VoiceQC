@@ -54,11 +54,16 @@ PARAM_KEYS = (
 
 
 def _run_out(r: ReconRun) -> ReconRunOut:
+    snapshot = dict(r.params_snapshot or {})
+    trade_date_from = snapshot.get("trade_date_from") or r.trade_date.isoformat()
+    trade_date_to = snapshot.get("trade_date_to") or r.trade_date.isoformat()
     return ReconRunOut(
         id=r.id,
         trade_date=r.trade_date,
+        trade_date_from=trade_date_from,
+        trade_date_to=trade_date_to,
         status=r.status,
-        params_snapshot=dict(r.params_snapshot or {}),
+        params_snapshot=snapshot,
         stats=dict(r.stats) if r.stats else None,
         error=r.error,
         started_at=r.started_at,
@@ -72,6 +77,7 @@ async def build_recon_run(
     trade_date,
     started_by=None,
     transaction_filters: dict | None = None,
+    trade_date_to=None,
 ) -> ReconRun:
     """Create (flush, not commit/queue) a recon run snapshotting the project's
     saved recon params. Caller commits and queues. Shared by create_run and the
@@ -87,6 +93,8 @@ async def build_recon_run(
         ).scalars()
     }
     snapshot = {
+        "trade_date_from": trade_date.isoformat(),
+        "trade_date_to": (trade_date_to or trade_date).isoformat(),
         "weights": settings_rows.get("recon.weights"),
         "thresholds": settings_rows.get("recon.thresholds"),
         "time_window": settings_rows.get("recon.time_window"),
@@ -109,18 +117,32 @@ async def create_run(
     session: AsyncSession = Depends(get_session),
     meta: ClientMeta = Depends(client_meta),
 ) -> ReconRunOut:
+    trade_date_from = payload.trade_date_from or payload.trade_date
+    trade_date_to = payload.trade_date_to or trade_date_from
+    if trade_date_from is None:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "trade_date is required")
+    if trade_date_to < trade_date_from:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, "trade_date_to must be >= trade_date_from"
+        )
     run = await build_recon_run(
         session,
         project_id,
-        payload.trade_date,
+        trade_date_from,
         user.id,
         payload.transaction_filters.model_dump() if payload.transaction_filters else None,
+        trade_date_to,
     )
     log_audit(
-        session, action="recon.run", user_id=user.id, actor_email=user.email,
-        object_type="recon_run", object_id=str(run.id),
+        session,
+        action="recon.run",
+        user_id=user.id,
+        actor_email=user.email,
+        object_type="recon_run",
+        object_id=str(run.id),
         details={
-            "trade_date": str(payload.trade_date),
+            "trade_date_from": str(trade_date_from),
+            "trade_date_to": str(trade_date_to),
             "transaction_filters": run.params_snapshot.get("transaction_filters"),
         },
         ip=meta.ip,
@@ -203,7 +225,9 @@ async def _item_out(session: AsyncSession, item: ReconItem) -> ReconItemOut:
 @router.get("/runs/{run_id}/items", response_model=ReconItemListOut)
 async def list_items(
     run_id: uuid.UUID,
-    bucket: str | None = Query(default=None, pattern="^(matched|txn_no_recording|recording_no_txn)$"),
+    bucket: str | None = Query(
+        default=None, pattern="^(matched|txn_no_recording|recording_no_txn)$"
+    ),
     match_status: str | None = None,
     page: int = 1,
     page_size: int = 50,
@@ -256,9 +280,15 @@ async def _review(
     item.reviewed_by = user.id
     item.reviewed_at = datetime.now(UTC)
     log_audit(
-        session, action=f"recon_item.{new_status}", user_id=user.id, actor_email=user.email,
-        object_type="recon_item", object_id=str(item.id), details={"note": note},
-        ip=meta.ip, user_agent=meta.user_agent,
+        session,
+        action=f"recon_item.{new_status}",
+        user_id=user.id,
+        actor_email=user.email,
+        object_type="recon_item",
+        object_id=str(item.id),
+        details={"note": note},
+        ip=meta.ip,
+        user_agent=meta.user_agent,
     )
     await session.commit()
 
@@ -362,34 +392,63 @@ async def export_run(
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(
-        ["item_type", "severity", "match_status", "score", "txn_ref", "broker", "client",
-         "stock", "side", "quantity", "price", "recording", "call_time", "note"]
+        [
+            "item_type",
+            "severity",
+            "match_status",
+            "score",
+            "txn_ref",
+            "broker",
+            "client",
+            "stock",
+            "side",
+            "quantity",
+            "price",
+            "recording",
+            "call_time",
+            "note",
+        ]
     )
     for item in items:
         out = await _item_out(session, item)
         txn, rec, instr = out.transaction, out.recording, out.instruction
-        writer.writerow([
-            out.item_type, out.severity, out.match_status, out.score,
-            txn.ext_txn_id if txn else "",
-            txn.broker_code if txn else "",
-            txn.client_name if txn else (instr.client_name_raw if instr else ""),
-            (txn.stock_code if txn else None) or (instr.stock_code if instr else ""),
-            (txn.side if txn else None) or (instr.side if instr else ""),
-            (txn.quantity if txn else None) or (instr.quantity if instr else ""),
-            (txn.price if txn else None) or (instr.price if instr else ""),
-            rec.original_filename if rec else "",
-            rec.call_started_at.isoformat() if rec and rec.call_started_at else "",
-            out.review_note or "",
-        ])
+        writer.writerow(
+            [
+                out.item_type,
+                out.severity,
+                out.match_status,
+                out.score,
+                txn.ext_txn_id if txn else "",
+                txn.broker_code if txn else "",
+                txn.client_name if txn else (instr.client_name_raw if instr else ""),
+                (txn.stock_code if txn else None) or (instr.stock_code if instr else ""),
+                (txn.side if txn else None) or (instr.side if instr else ""),
+                (txn.quantity if txn else None) or (instr.quantity if instr else ""),
+                (txn.price if txn else None) or (instr.price if instr else ""),
+                rec.original_filename if rec else "",
+                rec.call_started_at.isoformat() if rec and rec.call_started_at else "",
+                out.review_note or "",
+            ]
+        )
     log_audit(
-        session, action="recon.export", user_id=user.id, actor_email=user.email,
-        object_type="recon_run", object_id=str(run_id), ip=meta.ip, user_agent=meta.user_agent,
+        session,
+        action="recon.export",
+        user_id=user.id,
+        actor_email=user.email,
+        object_type="recon_run",
+        object_id=str(run_id),
+        ip=meta.ip,
+        user_agent=meta.user_agent,
     )
     await session.commit()
+    snapshot = dict(run.params_snapshot or {})
+    date_from = snapshot.get("trade_date_from") or run.trade_date.isoformat()
+    date_to = snapshot.get("trade_date_to") or date_from
+    date_label = date_from if date_from == date_to else f"{date_from}_{date_to}"
     return StreamingResponse(
         iter([buf.getvalue()]),
         media_type="text/csv",
         headers={
-            "Content-Disposition": f"attachment; filename=recon_{run.trade_date}_{str(run_id)[:8]}.csv"
+            "Content-Disposition": f"attachment; filename=recon_{date_label}_{str(run_id)[:8]}.csv"
         },
     )

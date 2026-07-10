@@ -592,13 +592,17 @@ class ReconTransactionFilters(BaseModel):
 
 
 class ReconRunCreate(BaseModel):
-    trade_date: date
+    trade_date: date | None = None
+    trade_date_from: date | None = None
+    trade_date_to: date | None = None
     transaction_filters: ReconTransactionFilters | None = None
 
 
 class ReconRunOut(BaseModel):
     id: uuid.UUID
     trade_date: date
+    trade_date_from: date
+    trade_date_to: date
     status: str
     params_snapshot: dict[str, Any]
     stats: dict[str, Any] | None
