@@ -30,15 +30,31 @@ _ET_TZ = ZoneInfo("America/New_York")
 # Fallback datetime/date formats tried in addition to the config date_format, so a
 # range of real broker exports parse without per-file tuning.
 _DT_FORMATS = (
-    "%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S", "%d/%m/%Y %H:%M:%S",
-    "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d",
+    "%Y-%m-%d %H:%M:%S",
+    "%Y/%m/%d %H:%M:%S",
+    "%d/%m/%Y %H:%M:%S",
+    "%Y-%m-%dT%H:%M:%S",
+    "%Y-%m-%d %H:%M",
+    "%Y-%m-%d",
 )
 _DATE_FORMATS = ("%Y-%m-%d", "%Y/%m/%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%b-%Y")
 
 CANONICAL_KEYS = (
-    "trade_date", "ext_txn_id", "ordered_at", "executed_at", "broker_code",
-    "client_account", "client_name", "stock_code", "stock_name", "side",
-    "quantity", "price", "amount", "channel", "status",
+    "trade_date",
+    "ext_txn_id",
+    "ordered_at",
+    "executed_at",
+    "broker_code",
+    "client_account",
+    "client_name",
+    "stock_code",
+    "stock_name",
+    "side",
+    "quantity",
+    "price",
+    "amount",
+    "channel",
+    "status",
 )
 
 
@@ -65,7 +81,13 @@ class CanonicalTxn:
 def _norm_stock_code(value: str | None) -> str | None:
     if not value:
         return None
-    digits = "".join(ch for ch in str(value) if ch.isdigit()).lstrip("0")
+    text = str(value).strip().upper()
+    if any("A" <= ch <= "Z" for ch in text):
+        # US securities use alphabetic tickers (NVDA, BRK.B, BF-B). Keeping
+        # only digits silently erased every US order from reconciliation.
+        ticker = re.sub(r"[^A-Z0-9.-]", "", text)
+        return ticker or None
+    digits = "".join(ch for ch in text if ch.isdigit()).lstrip("0")
     return digits or None
 
 
@@ -207,9 +229,7 @@ def parse_file(filename: str, data: bytes, config: dict[str, Any]) -> list[Canon
     return _parse_csv(data, config)
 
 
-def _rows_to_txns(
-    rows: list[dict[str, Any]], config: dict[str, Any]
-) -> list[CanonicalTxn]:
+def _rows_to_txns(rows: list[dict[str, Any]], config: dict[str, Any]) -> list[CanonicalTxn]:
     column_mapping = config["column_mapping"]
     status_column = (config.get("status_filter") or {}).get("column")
     # Some exports emit one row per partial fill of the same order; collapse them
@@ -242,10 +262,29 @@ def detected_trade_dates(txns: list[CanonicalTxn]) -> list[date]:
 
 
 def _parse_csv(data: bytes, config: dict[str, Any]) -> list[CanonicalTxn]:
-    encoding = _ENCODINGS.get(config.get("encoding", "utf-8"), "utf-8")
-    text = data.decode(encoding)
-    lines = text.splitlines()
+    configured = _ENCODINGS.get(config.get("encoding", "utf-8"), "utf-8")
+    encodings = [configured, *(e for e in ("utf-8-sig", "gb18030", "big5hkscs") if e != configured)]
     header_row = int(config.get("header_row", 1))
+    expected_headers = set(config["column_mapping"].values())
+    best: tuple[int, str] | None = None
+    for encoding in encodings:
+        try:
+            candidate = data.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+        lines = candidate.splitlines()
+        if len(lines) < header_row:
+            continue
+        headers = set(next(csv.reader([lines[header_row - 1]]), []))
+        score = len(headers & expected_headers)
+        if best is None or score > best[0]:
+            best = (score, candidate)
+        if score == len(expected_headers):
+            break
+    if best is None:
+        raise UnicodeDecodeError(configured, data, 0, 1, "unsupported CSV encoding")
+    text = best[1]
+    lines = text.splitlines()
     reader = csv.DictReader(io.StringIO("\n".join(lines[header_row - 1 :])))
     return _rows_to_txns(list(reader), config)
 

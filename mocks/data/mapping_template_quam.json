@@ -2,7 +2,7 @@
   "name": "Quam Client History Order Report",
   "kind": "csv",
   "config": {
-    "encoding": "utf-8-sig",
+    "encoding": "gb18030",
     "header_row": 1,
     "sheet_name": "Sheet1",
     "timezone": "Asia/Hong_Kong",
@@ -20,8 +20,10 @@
       "side": "買賣方向",
       "price": "委託價格",
       "quantity": "成交數量",
+      "order_quantity": "委託數量",
       "amount": "成交金額",
       "broker_code": "經紀人編號",
+      "broker_name": "委託人",
       "channel": "委託渠道",
       "order_status": "訂單狀態",
       "execution_type": "執行類型"

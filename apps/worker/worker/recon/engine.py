@@ -114,14 +114,36 @@ def _digits(value: str | None) -> str:
 
 
 def _person_key(value: str | None) -> str:
-    folded = re.sub(r"[^0-9a-z]", "", unicodedata.normalize("NFKC", value or "").casefold())
+    folded = re.sub(
+        r"[^0-9a-z\u3400-\u9fff]",
+        "",
+        unicodedata.normalize("NFKC", value or "").casefold(),
+    )
     return "".join(sorted(folded))
 
 
+def _identifying_broker_name(value: str | None) -> bool:
+    normalized = unicodedata.normalize("NFKC", value or "")
+    latin = re.sub(r"[^a-z]", "", normalized.casefold())
+    cjk = re.findall(r"[\u3400-\u9fff]", normalized)
+    return len(latin) >= 3 or len(cjk) >= 2
+
+
 def _broker_name_matches(txn: TxnView, instr: InstrView) -> bool:
+    if not _identifying_broker_name(txn.broker_name) or not _identifying_broker_name(
+        instr.broker_name
+    ):
+        return False
     txn_key = _person_key(txn.broker_name)
     instr_key = _person_key(instr.broker_name)
-    return bool(txn_key and instr_key and txn_key == instr_key)
+    if not txn_key or not instr_key:
+        return False
+    if txn_key == instr_key:
+        return True
+    # Telephony and order exports often differ only by romanisation or a
+    # missing vowel (Paul Leng / Paul Leung). Keep the threshold high because
+    # a broker match is shortlist evidence, not a cosmetic display match.
+    return SequenceMatcher(None, txn_key, instr_key).ratio() >= 0.9
 
 
 def _name_similarity(a: str | None, b: str | None) -> float:
@@ -140,7 +162,9 @@ def _stock_score(
     name_code = alias_map.get(fold(instr.stock_name_raw)) if instr.stock_name_raw else None
     codes = {c for c in (instr.stock_code, name_code) if c}
     if txn.stock_code and txn.stock_code in codes:
-        via = "name" if txn.stock_code == name_code and txn.stock_code != instr.stock_code else "code"
+        via = (
+            "name" if txn.stock_code == name_code and txn.stock_code != instr.stock_code else "code"
+        )
         return 1.0, False, f"matched via {via}"
     if txn.stock_code and codes:
         # Codes disagree and the glossary name didn't rescue it — try names.
@@ -217,17 +241,20 @@ def _time_score(txn: TxnView, instr: InstrView, params: Params) -> float:
     if instr.call_started_at <= txn.anchor <= call_end:
         return 1.0
     if txn.anchor > call_end:
-        frac = (txn.anchor - call_end) / timedelta(minutes=params.after_minutes)
+        window = timedelta(hours=max(params.before_hours, 1))
+        frac = (txn.anchor - call_end) / window
         return max(0.2, 1.0 - 0.8 * min(float(frac), 1.0))
-    return 0.2
+    window = timedelta(minutes=max(params.after_minutes, 1))
+    frac = (instr.call_started_at - txn.anchor) / window
+    return max(0.2, 1.0 - 0.8 * min(float(frac), 1.0))
 
 
 def _in_window(txn: TxnView, instr: InstrView, params: Params) -> bool:
     if txn.anchor is None or instr.call_started_at is None:
         return True  # cannot exclude on time — content must carry it
-    call_end = instr.call_started_at + timedelta(seconds=instr.call_duration_seconds or 0)
-    high = call_end + timedelta(minutes=params.after_minutes)
-    return instr.call_started_at <= txn.anchor <= high
+    low = txn.anchor - timedelta(hours=params.before_hours)
+    high = txn.anchor + timedelta(minutes=params.after_minutes)
+    return low <= instr.call_started_at <= high
 
 
 def score_pair(
@@ -260,9 +287,14 @@ def score_pair(
     penalty = None
     exts = broker_extensions.get(txn.broker_code or "")
     broker_name_match = _broker_name_matches(txn, instr)
-    if (not exts or instr.broker_ext not in exts) and not broker_name_match:
+    broker_name_known = _identifying_broker_name(txn.broker_name) and _identifying_broker_name(
+        instr.broker_name
+    )
+    ext_match = bool(exts and instr.broker_ext in exts)
+    if not ext_match and not broker_name_match:
         score *= NO_BROKER_PENALTY
-        penalty = f"broker mapping uncertain (x{NO_BROKER_PENALTY})"
+        evidence = "name mismatch" if broker_name_known else "mapping uncertain"
+        penalty = f"broker {evidence} (x{NO_BROKER_PENALTY})"
 
     breakdown = {
         "components": {k: round(v, 3) for k, v in components.items()},
@@ -316,9 +348,7 @@ def _lift_split_fills(
             if pair.breakdown.get("penalty"):
                 score *= NO_BROKER_PENALTY
             pair.score = round(score, 4)
-            zeroed = [
-                k for k in ("quantity", "price", "client") if components[k] == 0.0
-            ]
+            zeroed = [k for k in ("quantity", "price", "client") if components[k] == 0.0]
             if pair.score >= params.auto_match and not zeroed:
                 pair.status = "auto_matched"
                 pair.breakdown.pop("capped", None)
@@ -348,11 +378,18 @@ def run_match(
     for txn in in_scope:
         exts = broker_extensions.get(txn.broker_code or "")
         for instr in instrs:
+            broker_name_match = _broker_name_matches(txn, instr)
+            if (
+                _identifying_broker_name(txn.broker_name)
+                and _identifying_broker_name(instr.broker_name)
+                and not broker_name_match
+            ):
+                continue
             if (
                 exts
                 and instr.broker_ext is not None
                 and instr.broker_ext not in exts
-                and not _broker_name_matches(txn, instr)
+                and not broker_name_match
             ):
                 continue
             if not _in_window(txn, instr, params):
@@ -373,10 +410,7 @@ def run_match(
         # Compliance cap: a zeroed component means hard evidence DISAGREES
         # (booked qty far from instructed, limit price way off, client name
         # contradicts) — never auto-match those, whatever the total score.
-        zeroed = [
-            k for k in ("quantity", "price", "client")
-            if breakdown["components"][k] == 0.0
-        ]
+        zeroed = [k for k in ("quantity", "price", "client") if breakdown["components"][k] == 0.0]
         if status == "auto_matched" and zeroed:
             status = "needs_review"
             breakdown["capped"] = f"material discrepancy in {', '.join(zeroed)}"

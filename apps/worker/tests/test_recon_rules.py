@@ -135,7 +135,7 @@ def test_system_generated_rows_are_excluded_from_reconciliation_scope() -> None:
     assert _transaction_action_views(rows) == []
 
 
-def test_order_time_must_fall_inside_call_plus_buffer() -> None:
+def test_call_may_precede_order_within_configured_window() -> None:
     transaction = TxnView(
         id="T-late",
         anchor=hk("10:10"),
@@ -170,6 +170,48 @@ def test_order_time_must_fall_inside_call_plus_buffer() -> None:
         [instruction],
         [],
         params=Params(after_minutes=3),
+        alias_map={},
+        broker_extensions={"AE012": {"2012"}},
+    )
+
+    assert len(result.matched) == 1
+
+
+def test_call_outside_configured_window_is_rejected() -> None:
+    transaction = TxnView(
+        id="T-window",
+        anchor=hk("16:30"),
+        broker_code="AE012",
+        client_account="0188",
+        client_name="Client",
+        stock_code="700",
+        stock_name=None,
+        side="buy",
+        quantity=100,
+        price=10,
+        channel="phone",
+    )
+    instruction = InstrView(
+        id="I-window",
+        recording_id="R-window",
+        call_started_at=hk("10:00"),
+        call_duration_seconds=120,
+        broker_ext="2012",
+        stock_code="700",
+        stock_name_raw=None,
+        side="buy",
+        quantity=100,
+        price=10,
+        price_type="limit",
+        client_name_raw=None,
+        client_account_raw=None,
+    )
+
+    result = run_match(
+        [transaction],
+        [instruction],
+        [],
+        params=Params(before_hours=6, after_minutes=15),
         alias_map={},
         broker_extensions={"AE012": {"2012"}},
     )
@@ -220,3 +262,139 @@ def test_broker_full_name_can_rescue_extension_mismatch() -> None:
 
     assert len(result.matched) == 1
     assert result.matched[0].breakdown["broker_name_match"] is True
+
+
+def test_close_broker_romanisation_is_accepted() -> None:
+    transaction = TxnView(
+        id="T-romanisation",
+        anchor=hk("10:02"),
+        broker_code="QUAMIB",
+        client_account="0188",
+        client_name="Client",
+        stock_code="700",
+        stock_name=None,
+        side="buy",
+        quantity=100,
+        price=10,
+        channel="phone",
+        broker_name="Paul Leng",
+    )
+    instruction = InstrView(
+        id="I-romanisation",
+        recording_id="R-romanisation",
+        call_started_at=hk("10:00"),
+        call_duration_seconds=120,
+        broker_ext="9999",
+        stock_code="700",
+        stock_name_raw=None,
+        side="buy",
+        quantity=100,
+        price=10,
+        price_type="limit",
+        client_name_raw=None,
+        client_account_raw=None,
+        broker_name="Paul Leung",
+    )
+
+    result = run_match(
+        [transaction],
+        [instruction],
+        [],
+        params=Params(),
+        alias_map={},
+        broker_extensions={},
+    )
+
+    assert len(result.matched) == 1
+    assert result.matched[0].breakdown["broker_name_match"] is True
+
+
+def test_same_chinese_broker_name_is_accepted() -> None:
+    transaction = TxnView(
+        id="T-chinese-name",
+        anchor=hk("10:02"),
+        broker_code="QUAMIB",
+        client_account="0188",
+        client_name="Client",
+        stock_code="700",
+        stock_name=None,
+        side="buy",
+        quantity=100,
+        price=10,
+        channel="phone",
+        broker_name="陳大文",
+    )
+    instruction = InstrView(
+        id="I-chinese-name",
+        recording_id="R-chinese-name",
+        call_started_at=hk("10:00"),
+        call_duration_seconds=120,
+        broker_ext="9999",
+        stock_code="700",
+        stock_name_raw=None,
+        side="buy",
+        quantity=100,
+        price=10,
+        price_type="limit",
+        client_name_raw=None,
+        client_account_raw=None,
+        broker_name="陳大文",
+    )
+
+    result = run_match(
+        [transaction],
+        [instruction],
+        [],
+        params=Params(),
+        alias_map={},
+        broker_extensions={},
+    )
+
+    assert len(result.matched) == 1
+    assert result.matched[0].breakdown["broker_name_match"] is True
+
+
+def test_numeric_broker_metadata_is_treated_as_unknown() -> None:
+    transaction = TxnView(
+        id="T-numeric-name",
+        anchor=hk("10:02"),
+        broker_code="QUAMIB",
+        client_account="0188",
+        client_name="Client",
+        stock_code="700",
+        stock_name=None,
+        side="buy",
+        quantity=100,
+        price=10,
+        channel="phone",
+        broker_name="Chanel Leung",
+    )
+    instruction = InstrView(
+        id="I-numeric-name",
+        recording_id="R-numeric-name",
+        call_started_at=hk("10:00"),
+        call_duration_seconds=120,
+        broker_ext="9292",
+        stock_code="700",
+        stock_name_raw=None,
+        side="buy",
+        quantity=100,
+        price=10,
+        price_type="limit",
+        client_name_raw=None,
+        client_account_raw=None,
+        broker_name="9292",
+    )
+
+    result = run_match(
+        [transaction],
+        [instruction],
+        [],
+        params=Params(),
+        alias_map={},
+        broker_extensions={},
+    )
+
+    assert len(result.matched) == 1
+    assert result.matched[0].breakdown["broker_name_match"] is False
+    assert result.matched[0].breakdown["penalty"]

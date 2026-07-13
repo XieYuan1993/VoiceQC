@@ -12,12 +12,13 @@ the recording fails soft with failed_stage='budget' — retryable tomorrow.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from collections import Counter
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import Any
 
 from loguru import logger
-from sqlalchemy import select
+from sqlalchemy import func, select
 from voiceqa_shared.db_models import (
     ChecklistItem,
     EvalCriterion,
@@ -29,6 +30,7 @@ from voiceqa_shared.db_models import (
     Project,
     Recording,
     TradeInstruction,
+    Transaction,
     Transcript,
 )
 from voiceqa_shared.llm_usage import llm_tokens_today_sync, record_llm_usage_sync
@@ -49,6 +51,9 @@ SENTIMENTS = {"positive", "neutral", "negative", "frustrated", "mixed"}
 VERDICTS = {"correct", "incorrect", "unsupported"}
 KB_TOP_K = 6  # KB chunks retrieved per call for answer-correctness
 KB_QUERY_CHARS = 2000  # transcript prefix used as the retrieval query (embed token cap)
+TRADE_CHUNK_CHARS = 12_000
+TRADE_CHUNK_OVERLAP_LINES = 2
+TRADE_CANDIDATES_MAX = 100
 
 
 @lru_cache(maxsize=1)
@@ -154,7 +159,7 @@ def build_prompt(
             "\n- Extract EVERY trade instruction the client gives — a call may contain several; "
             "amendments and cancellations count. Resolve stocks to their numeric code via the "
             "glossary where possible (e.g. 騰訊 -> 700). Numbers as digits. The transcript may "
-            'garble names and digits — give the most plausible reading and reflect uncertainty in '
+            "garble names and digits — give the most plausible reading and reflect uncertainty in "
             '"confidence" (0-1). If the call contains no trade instruction, "trade_instructions" is [].'
             "\n- caller: the CLIENT's own name and account number as stated anywhere in the call "
             '(the client identifying themselves, e.g. "我係陳大文 戶口…"). This is the client, NOT '
@@ -243,6 +248,131 @@ document", "escalate to claims team"). [] if none.{checklist_instruction}{correc
 - Judge on the balance of evidence; do not invent content that is not in the transcript."""
 
 
+def _trade_chunks(text: str, max_chars: int = TRADE_CHUNK_CHARS) -> list[str]:
+    """Split long transcripts on timestamped lines with a small overlap."""
+    if len(text) <= max_chars:
+        return [text]
+    chunks: list[str] = []
+    current: list[str] = []
+    current_chars = 0
+    for line in text.splitlines():
+        line_chars = len(line) + 1
+        if current and current_chars + line_chars > max_chars:
+            chunks.append("\n".join(current))
+            current = current[-TRADE_CHUNK_OVERLAP_LINES:]
+            current_chars = sum(len(item) + 1 for item in current)
+        if line_chars > max_chars:
+            if current:
+                chunks.append("\n".join(current))
+                current = []
+                current_chars = 0
+            chunks.extend(line[i : i + max_chars] for i in range(0, len(line), max_chars))
+            continue
+        current.append(line)
+        current_chars += line_chars
+    if current:
+        chunks.append("\n".join(current))
+    return [chunk for chunk in chunks if chunk.strip()] or [text]
+
+
+def _candidate_securities(session, rec: Recording) -> list[tuple[str, str | None]]:
+    """Most frequent booked securities near this call, used only as ASR hints."""
+    if rec.call_started_at is None:
+        return []
+    anchor = func.coalesce(Transaction.ordered_at, Transaction.executed_at)
+    rows = session.execute(
+        select(Transaction.stock_code, Transaction.stock_name, Transaction.raw).where(
+            anchor >= rec.call_started_at - timedelta(minutes=15),
+            anchor <= rec.call_started_at + timedelta(hours=6),
+        )
+    ).all()
+    counts: Counter[tuple[str, str | None]] = Counter()
+    for stock_code, stock_name, raw in rows:
+        raw_code = (raw or {}).get("stock_code") if isinstance(raw, dict) else None
+        code = _normalize_stock_code(stock_code or raw_code)
+        if code:
+            counts[(code, stock_name or None)] += 1
+    return [security for security, _count in counts.most_common(TRADE_CANDIDATES_MAX)]
+
+
+def build_trade_prompt(
+    rec: Recording,
+    transcript_text: str,
+    terms: list[IndustryTerm],
+    candidate_securities: list[tuple[str, str | None]],
+    *,
+    chunk_index: int,
+    chunk_count: int,
+) -> str:
+    candidates = (
+        "\n".join(
+            f"- {code}" + (f" | {name}" if name else "") for code, name in candidate_securities
+        )
+        or "(none available)"
+    )
+    started = rec.call_started_at.isoformat() if rec.call_started_at else "unknown"
+    return f"""You extract securities trade instructions from Cantonese, Mandarin, and English call transcripts.
+
+## Call metadata
+- started: {started} | broker: {rec.broker_name or rec.broker_ext or "unknown"}
+- transcript chunk: {chunk_index}/{chunk_count}
+
+## Known securities glossary
+{_glossary_block(terms)}
+
+## Candidate securities booked near this call
+These are hints for repairing ASR errors, not proof that an order was spoken. Never invent an
+instruction merely because a candidate appears here. Codes may be Hong Kong numeric codes or US
+alphabetic tickers such as NVDA, RKLB, BRK.B, or BF-B.
+{candidates}
+
+## Transcript
+{transcript_text}
+
+## Extraction rules
+- Extract EVERY new, amend, cancel, or conditional/preset instruction in this chunk, in speaking order.
+- Keep repeated orders as separate instructions when they occur at different timestamps.
+- Resolve fast or concatenated speech using the glossary, candidate list, quantity, price, and context.
+- Preserve US alphabetic tickers. Normalize Hong Kong numeric codes by removing leading zeros.
+- For amend/cancel instructions set side to amend/cancel. Otherwise use buy/sell.
+- Extract the instructed quantity, not a later filled quantity. Use null when genuinely unavailable.
+- Extract client name/account whenever either speaker states who the instruction belongs to. It does
+  not need to be self-identification. Copy the call-level client into each related instruction.
+- time_in_call_ms must point to the instruction's approximate transcript timestamp.
+- evidence_quote must be verbatim transcript text. Reflect uncertainty in confidence (0-1).
+- If this chunk contains no instruction, return an empty trade_instructions array.
+"""
+
+
+def _merge_trade_outputs(outputs: list[dict[str, Any]]) -> dict[str, Any]:
+    caller: dict[str, Any] = {"name": None, "account": None}
+    instructions: list[dict[str, Any]] = []
+    seen: set[tuple[Any, ...]] = set()
+    for output in outputs:
+        raw_caller = output.get("caller")
+        if isinstance(raw_caller, dict):
+            caller["name"] = caller["name"] or raw_caller.get("name")
+            caller["account"] = caller["account"] or raw_caller.get("account")
+        for item in output.get("trade_instructions") or []:
+            if not isinstance(item, dict):
+                continue
+            time_ms = item.get("time_in_call_ms")
+            time_bucket = round(time_ms / 5000) if isinstance(time_ms, int | float) else None
+            key = (
+                _normalize_stock_code(item.get("stock_code")),
+                str(item.get("stock_name_raw") or "").strip().casefold(),
+                item.get("side"),
+                _coerce_number(item.get("quantity")),
+                _coerce_number(item.get("price")),
+                time_bucket,
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            instructions.append(item)
+    return {"caller": caller, "trade_instructions": instructions}
+
+
 def _field_schema(f: ExtractionField) -> dict[str, Any]:
     if f.field_type == "enum" and f.enum_options:
         return {"type": "string", "enum": list(f.enum_options), "nullable": True}
@@ -251,6 +381,42 @@ def _field_schema(f: ExtractionField) -> dict[str, Any]:
     if f.field_type == "boolean":
         return {"type": "boolean", "nullable": True}
     return {"type": "string", "nullable": True}  # string | date
+
+
+def build_trade_response_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "caller": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "nullable": True},
+                    "account": {"type": "string", "nullable": True},
+                },
+            },
+            "trade_instructions": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "stock_code": {"type": "string", "nullable": True},
+                        "stock_name_raw": {"type": "string", "nullable": True},
+                        "side": {"type": "string", "enum": sorted(SIDES)},
+                        "quantity": {"type": "number", "nullable": True},
+                        "price": {"type": "number", "nullable": True},
+                        "price_type": {"type": "string", "enum": sorted(PRICE_TYPES)},
+                        "client_name_raw": {"type": "string", "nullable": True},
+                        "client_account_raw": {"type": "string", "nullable": True},
+                        "time_in_call_ms": {"type": "integer", "nullable": True},
+                        "confidence": {"type": "number"},
+                        "evidence_quote": {"type": "string", "nullable": True},
+                    },
+                    "required": ["side", "price_type", "confidence"],
+                },
+            },
+        },
+        "required": ["caller", "trade_instructions"],
+    }
 
 
 def build_response_schema(
@@ -323,40 +489,20 @@ def build_response_schema(
             "follow_up_actions": {"type": "array", "items": {"type": "string"}},
         },
         "required": [
-            "summary", "criteria", "risk_flags",
-            "sentiment", "topics", "complaint", "follow_up_actions",
+            "summary",
+            "criteria",
+            "risk_flags",
+            "sentiment",
+            "topics",
+            "complaint",
+            "follow_up_actions",
         ],
     }
     # Trade-reconciliation module: client identity + structured trade orders.
     if trade_module:
-        schema["properties"]["caller"] = {
-            "type": "object",
-            "properties": {
-                "name": {"type": "string", "nullable": True},
-                "account": {"type": "string", "nullable": True},
-            },
-        }
-        schema["properties"]["trade_instructions"] = {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "stock_code": {"type": "string", "nullable": True},
-                    "stock_name_raw": {"type": "string", "nullable": True},
-                    "side": {"type": "string", "enum": sorted(SIDES)},
-                    "quantity": {"type": "number", "nullable": True},
-                    "price": {"type": "number", "nullable": True},
-                    "price_type": {"type": "string", "enum": sorted(PRICE_TYPES)},
-                    "client_name_raw": {"type": "string", "nullable": True},
-                    "client_account_raw": {"type": "string", "nullable": True},
-                    "time_in_call_ms": {"type": "integer", "nullable": True},
-                    "confidence": {"type": "number"},
-                    "evidence_quote": {"type": "string", "nullable": True},
-                },
-                "required": ["side", "price_type", "confidence"],
-            },
-        }
-        schema["required"] += ["caller", "trade_instructions"]
+        trade_schema = build_trade_response_schema()
+        schema["properties"].update(trade_schema["properties"])
+        schema["required"] += trade_schema["required"]
     if checklist:
         schema["properties"]["checklist"] = {
             "type": "array",
@@ -409,7 +555,11 @@ def build_response_schema(
 def _normalize_stock_code(code: str | None) -> str | None:
     if not code:
         return None
-    stripped = "".join(ch for ch in code if ch.isdigit()).lstrip("0")
+    text = str(code).strip().upper()
+    if any("A" <= ch <= "Z" for ch in text):
+        ticker = "".join(ch for ch in text if ch.isalnum() or ch in ".-")
+        return ticker or None
+    stripped = "".join(ch for ch in text if ch.isdigit()).lstrip("0")
     return stripped or None
 
 
@@ -480,7 +630,9 @@ def evaluate(self, recording_id: str) -> None:
             return
         project_id = rec.project_id
         project = session.get(Project, project_id)
-        trade_module = bool((project.modules or {}).get("trade_reconciliation")) if project else False
+        trade_module = (
+            bool((project.modules or {}).get("trade_reconciliation")) if project else False
+        )
         eval_context = project.eval_prompt_context if project else None
         transcript = (
             session.execute(select(Transcript).where(Transcript.recording_id == rec.id))
@@ -620,29 +772,72 @@ def evaluate(self, recording_id: str) -> None:
         # Answer-correctness RAG: retrieve the most relevant KB chunks for this
         # call (skipped — and correctness omitted — when the project has no KB).
         kb_chunks = (
-            session.execute(select(KbChunk).where(KbChunk.project_id == project_id))
-            .scalars()
-            .all()
+            session.execute(select(KbChunk).where(KbChunk.project_id == project_id)).scalars().all()
         )
         kb_context = _retrieve_kb_context(transcript.full_text, kb_chunks) if kb_chunks else None
 
         prompt = build_prompt(
-            rec, transcript.full_text, criteria, call_fields, terms, checklist,
-            context=eval_context, trade_module=trade_module, kb_context=kb_context,
+            rec,
+            transcript.full_text,
+            criteria,
+            call_fields,
+            terms,
+            checklist,
+            context=eval_context,
+            trade_module=False,
+            kb_context=kb_context,
         )
         schema = build_response_schema(
-            criteria, call_fields, checklist, trade_module=trade_module,
+            criteria,
+            call_fields,
+            checklist,
+            trade_module=False,
             has_kb=kb_context is not None,
         )
+        trade_prompts: list[str] = []
+        trade_schema = build_trade_response_schema()
+        if trade_module:
+            chunks = _trade_chunks(transcript.full_text)
+            candidates = _candidate_securities(session, rec)
+            trade_prompts = [
+                build_trade_prompt(
+                    rec,
+                    chunk,
+                    terms,
+                    candidates,
+                    chunk_index=index,
+                    chunk_count=len(chunks),
+                )
+                for index, chunk in enumerate(chunks, 1)
+            ]
 
     try:
-        parsed, in_tok, out_tok = _adapter().generate_structured(prompt, schema, model=model)
+        adapter = _adapter()
+        parsed, in_tok, out_tok = adapter.generate_structured(prompt, schema, model=model)
+        trade_outputs = []
+        for trade_prompt in trade_prompts:
+            trade_output, trade_in_tok, trade_out_tok = adapter.generate_structured(
+                trade_prompt,
+                trade_schema,
+                model=model,
+                temperature=0.1,
+            )
+            trade_outputs.append(trade_output)
+            in_tok += trade_in_tok
+            out_tok += trade_out_tok
+        trade_parsed = _merge_trade_outputs(trade_outputs)
     except Exception as e:
         transient = any(
             marker in str(e)
             for marker in (
-                "429", "RESOURCE_EXHAUSTED", "503", "UNAVAILABLE",
-                "timed out", "TimeoutException", "ReadTimeout", "ConnectTimeout",
+                "429",
+                "RESOURCE_EXHAUSTED",
+                "503",
+                "UNAVAILABLE",
+                "timed out",
+                "TimeoutException",
+                "ReadTimeout",
+                "ConnectTimeout",
             )
         )
         if transient:
@@ -699,7 +894,16 @@ def evaluate(self, recording_id: str) -> None:
 
         aliases = _alias_map(terms)
         trade_count = 0
-        for idx, item in enumerate((parsed.get("trade_instructions") or []) if trade_module else []):
+        trade_caller = trade_parsed.get("caller") if trade_module else None
+        caller_name = (
+            str(trade_caller.get("name") or "").strip() if isinstance(trade_caller, dict) else ""
+        )
+        caller_account = (
+            str(trade_caller.get("account") or "").strip() if isinstance(trade_caller, dict) else ""
+        )
+        for idx, item in enumerate(
+            (trade_parsed.get("trade_instructions") or []) if trade_module else []
+        ):
             if not isinstance(item, dict):
                 continue
             code = _normalize_stock_code(item.get("stock_code"))
@@ -719,8 +923,8 @@ def evaluate(self, recording_id: str) -> None:
                     price_type=item.get("price_type")
                     if item.get("price_type") in PRICE_TYPES
                     else "unknown",
-                    client_name_raw=(item.get("client_name_raw") or None),
-                    client_account_raw=(item.get("client_account_raw") or None),
+                    client_name_raw=(item.get("client_name_raw") or caller_name or None),
+                    client_account_raw=(item.get("client_account_raw") or caller_account or None),
                     time_in_call_ms=int(item["time_in_call_ms"])
                     if isinstance(item.get("time_in_call_ms"), int | float)
                     else None,
@@ -732,9 +936,11 @@ def evaluate(self, recording_id: str) -> None:
 
         known_call_keys = {f.key for f in call_fields}
         raw_fields = parsed.get("call_fields") or {}
-        evaluation.extracted_call_fields = {
-            k: v for k, v in raw_fields.items() if k in known_call_keys
-        } if isinstance(raw_fields, dict) else {}
+        evaluation.extracted_call_fields = (
+            {k: v for k, v in raw_fields.items() if k in known_call_keys}
+            if isinstance(raw_fields, dict)
+            else {}
+        )
 
         flags = []
         for flag in parsed.get("risk_flags") or []:
@@ -850,12 +1056,17 @@ def evaluate(self, recording_id: str) -> None:
         evaluation.completed_at = datetime.now(UTC)
 
         record_llm_usage_sync(
-            session, callsite="evaluation", model=model, input_tokens=in_tok, output_tokens=out_tok
+            session,
+            callsite="evaluation",
+            model=model,
+            input_tokens=in_tok,
+            output_tokens=out_tok,
+            requests=1 + len(trade_prompts),
         )
 
         # Client identity as heard in the call -> recording (for display/search).
         # Only set when found, so a re-run that misses it doesn't wipe a prior hit.
-        caller = parsed.get("caller") if trade_module else None
+        caller = trade_parsed.get("caller") if trade_module else None
         if isinstance(caller, dict):
             name = str(caller.get("name") or "").strip()
             account = str(caller.get("account") or "").strip()
@@ -870,6 +1081,11 @@ def evaluate(self, recording_id: str) -> None:
 
     logger.info(
         "evaluated {} run={}: score={} trades={} tokens={}/{}",
-        recording_id, run_seq, evaluation.overall_score, trade_count, in_tok, out_tok,
+        recording_id,
+        run_seq,
+        evaluation.overall_score,
+        trade_count,
+        in_tok,
+        out_tok,
     )
     update_progress.delay(batch_id)

@@ -173,9 +173,9 @@ def _action_view(txn: Transaction, action_type: str) -> TxnView:
         stock_code=txn.stock_code,
         stock_name=txn.stock_name,
         side=txn.side,
-        quantity=quantity if quantity is not None else (
-            float(txn.quantity) if txn.quantity is not None else None
-        ),
+        quantity=quantity
+        if quantity is not None
+        else (float(txn.quantity) if txn.quantity is not None else None),
         price=price if price is not None else (float(txn.price) if txn.price is not None else None),
         channel=txn.channel,
         broker_name=_raw_first(raw, "broker_name", "委託人", "委托人") or None,
@@ -317,8 +317,8 @@ def _load_views(
                     quantity=float(ti.quantity) if ti.quantity is not None else None,
                     price=float(ti.price) if ti.price is not None else None,
                     price_type=ti.price_type,
-                    client_name_raw=ti.client_name_raw,
-                    client_account_raw=ti.client_account_raw,
+                    client_name_raw=ti.client_name_raw or rec.client_name,
+                    client_account_raw=ti.client_account_raw or rec.client_account,
                 )
             )
 

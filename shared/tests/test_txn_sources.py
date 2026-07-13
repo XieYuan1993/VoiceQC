@@ -5,9 +5,9 @@ from voiceqa_shared.txn_sources import parse_file
 
 
 def test_quam_client_history_order_report_imports_all_parseable_rows() -> None:
-    config = json.loads(
-        Path("mocks/data/mapping_template_quam.json").read_text(encoding="utf-8")
-    )["config"]
+    config = json.loads(Path("mocks/data/mapping_template_quam.json").read_text(encoding="utf-8"))[
+        "config"
+    ]
     csv_data = "\n".join(
         [
             "交易日,生成時間,訂單號,證券賬號,客户姓名,證券代碼,證券名稱,市場,買賣方向,開平方向,委託價格,委託數量,掛單數量,成交數量,成交金額,訂單狀態,對手方席位號,經紀人編號,信息,委託人,委託渠道,執行類型,上手經紀商,上手賬號,證券類別",
@@ -31,6 +31,8 @@ def test_quam_client_history_order_report_imports_all_parseable_rows() -> None:
     assert imported[0].quantity == 0
     assert imported[0].amount == 0
     assert imported[0].channel == "phone"
+    assert imported[0].raw["order_quantity"] == "1,000"
+    assert imported[0].raw["broker_name"] == "Ken Chow"
     assert imported[0].raw["order_status"] == "已委託"
     assert imported[0].raw["execution_type"] == "NewExec"
     assert imported[1].raw["order_status"] == "部分成交"
@@ -67,3 +69,31 @@ def test_transaction_timezones_are_normalized_to_hong_kong() -> None:
     assert imported[0].ordered_at.isoformat() == "2026-05-14T04:00:12+08:00"
     assert imported[1].ordered_at is not None
     assert imported[1].ordered_at.isoformat() == "2026-05-14T04:00:12+08:00"
+
+
+def test_alphabetic_us_tickers_are_preserved() -> None:
+    config = {
+        "encoding": "utf-8",
+        "column_mapping": {"stock_code": "stock", "side": "side"},
+        "side_values": {"buy": ["BUY"], "sell": ["SELL"]},
+    }
+    csv_data = b"stock,side\nNVDA,BUY\nBRK.B,SELL\n00700,BUY\n"
+
+    imported = [t for t in parse_file("orders.csv", csv_data, config) if t.skip_reason is None]
+
+    assert [t.stock_code for t in imported] == ["NVDA", "BRK.B", "700"]
+
+
+def test_csv_encoding_is_selected_by_mapped_header_match() -> None:
+    config = {
+        "encoding": "utf-8-sig",
+        "column_mapping": {"stock_code": "證券代碼", "side": "買賣方向"},
+        "side_values": {"buy": ["買入"], "sell": ["賣出"]},
+    }
+    csv_data = "證券代碼,買賣方向\nRKLB,買入\n".encode("gb18030")
+
+    imported = [t for t in parse_file("orders.csv", csv_data, config) if t.skip_reason is None]
+
+    assert len(imported) == 1
+    assert imported[0].stock_code == "RKLB"
+    assert imported[0].side == "buy"
