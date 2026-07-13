@@ -79,6 +79,12 @@ def _parse_call_export_text(text: str) -> dict[str, str | datetime | None]:
     return {
         "started_at": started_at,
         "broker_ext": fields.get("extension") or None,
+        "broker_name": fields.get("caller name")
+        or fields.get("extension name")
+        or fields.get("user name")
+        or fields.get("agent name")
+        or fields.get("name")
+        or None,
         "caller_number": fields.get("other party")
         or fields.get("called number")
         or fields.get("caller number")
@@ -132,6 +138,7 @@ def _apply_txt_metadata(rec: Recording, meta: dict[str, str | datetime | None] |
     if not meta:
         return
     rec.broker_ext = str(meta["broker_ext"]) if meta.get("broker_ext") else rec.broker_ext
+    rec.broker_name = str(meta["broker_name"]) if meta.get("broker_name") else rec.broker_name
     rec.caller_number = (
         str(meta["caller_number"]) if meta.get("caller_number") else rec.caller_number
     )

@@ -134,6 +134,7 @@ class RecordingOut(BaseModel):
     error: str | None
     duration_seconds: float | None
     broker_ext: str | None
+    broker_name: str | None = None
     caller_number: str | None
     client_name: str | None = None
     client_account: str | None = None
@@ -631,6 +632,7 @@ class ReconRecordingBrief(BaseModel):
     id: uuid.UUID
     original_filename: str
     broker_ext: str | None
+    broker_name: str | None = None
     call_started_at: datetime | None
 
 

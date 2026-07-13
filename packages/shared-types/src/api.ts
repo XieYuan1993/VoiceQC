@@ -169,6 +169,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/asr-audio": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Asr Audio */
+        get: operations["get_asr_audio_api_asr_audio_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/batches": {
         parameters: {
             query?: never;
@@ -204,6 +221,40 @@ export interface paths {
          *     trade instructions, then purge their audio from object storage.
          */
         delete: operations["delete_batch_api_batches__batch_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/batches/{batch_id}/direct-upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Init Direct Upload */
+        post: operations["init_direct_upload_api_batches__batch_id__direct_upload_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/batches/{batch_id}/direct-upload/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Complete Direct Upload */
+        post: operations["complete_direct_upload_api_batches__batch_id__direct_upload_complete_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -254,6 +305,23 @@ export interface paths {
         put?: never;
         /** Retry Failed */
         post: operations["retry_failed_api_batches__batch_id__retry_failed_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/batches/{batch_id}/rerun-stt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Rerun Batch Stt */
+        post: operations["rerun_batch_stt_api_batches__batch_id__rerun_stt_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1567,6 +1635,13 @@ export interface components {
             last_run_at?: string | null;
             counts?: components["schemas"]["BatchCounts"] | null;
         };
+        /** BatchSttRerunIn */
+        BatchSttRerunIn: {
+            /** Asr Provider */
+            asr_provider: string;
+            /** Asr Model */
+            asr_model?: string | null;
+        };
         /** Body_dry_run_csv_api_txn_imports_csv_dry_run_post */
         Body_dry_run_csv_api_txn_imports_csv_dry_run_post: {
             /** File */
@@ -1761,6 +1836,50 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /** DirectUploadComplete */
+        DirectUploadComplete: {
+            /** Upload Id */
+            upload_id: string;
+            /** Filename */
+            filename: string;
+            /** Size Bytes */
+            size_bytes: number;
+            /** Sha256 */
+            sha256?: string | null;
+        };
+        /** DirectUploadInit */
+        DirectUploadInit: {
+            /** Filename */
+            filename: string;
+            /** Size Bytes */
+            size_bytes: number;
+            /** Content Type */
+            content_type?: string | null;
+        };
+        /** DirectUploadInitOut */
+        DirectUploadInitOut: {
+            /** Upload Id */
+            upload_id: string;
+            /** Upload Url */
+            upload_url: string;
+            /**
+             * Method
+             * @default PUT
+             */
+            method: string;
+            /** Headers */
+            headers: {
+                [key: string]: string;
+            };
+            /** Expires In Seconds */
+            expires_in_seconds: number;
+            /** Filename */
+            filename: string;
+            /** Kind */
+            kind: string;
+            /** Size Bytes */
+            size_bytes: number;
         };
         /** DryRunOut */
         DryRunOut: {
@@ -2327,26 +2446,20 @@ export interface components {
             original_filename: string;
             /** Broker Ext */
             broker_ext: string | null;
+            /** Broker Name */
+            broker_name?: string | null;
             /** Call Started At */
             call_started_at: string | null;
         };
         /** ReconRunCreate */
         ReconRunCreate: {
-            /**
-             * Trade Date
-             * Format: date
-             */
+            /** Trade Date */
             trade_date?: string | null;
-            /**
-             * Trade Date From
-             * Format: date
-             */
+            /** Trade Date From */
             trade_date_from?: string | null;
-            /**
-             * Trade Date To
-             * Format: date
-             */
+            /** Trade Date To */
             trade_date_to?: string | null;
+            transaction_filters?: components["schemas"]["ReconTransactionFilters"] | null;
         };
         /** ReconRunOut */
         ReconRunOut: {
@@ -2389,6 +2502,13 @@ export interface components {
             started_at: string;
             /** Completed At */
             completed_at: string | null;
+        };
+        /** ReconTransactionFilters */
+        ReconTransactionFilters: {
+            /** Order Statuses */
+            order_statuses: string[];
+            /** Execution Types */
+            execution_types: string[];
         };
         /** ReconTxnBrief */
         ReconTxnBrief: {
@@ -2446,6 +2566,8 @@ export interface components {
             duration_seconds: number | null;
             /** Broker Ext */
             broker_ext: string | null;
+            /** Broker Name */
+            broker_name?: string | null;
             /** Caller Number */
             caller_number: string | null;
             /** Client Name */
@@ -2516,6 +2638,8 @@ export interface components {
             duration_seconds: number | null;
             /** Broker Ext */
             broker_ext: string | null;
+            /** Broker Name */
+            broker_name?: string | null;
             /** Caller Number */
             caller_number: string | null;
             /** Client Name */
@@ -3369,6 +3493,37 @@ export interface operations {
             };
         };
     };
+    get_asr_audio_api_asr_audio_get: {
+        parameters: {
+            query: {
+                token: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_batches_api_batches_get: {
         parameters: {
             query?: {
@@ -3503,6 +3658,76 @@ export interface operations {
             };
         };
     };
+    init_direct_upload_api_batches__batch_id__direct_upload_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DirectUploadInit"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectUploadInitOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    complete_direct_upload_api_batches__batch_id__direct_upload_complete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DirectUploadComplete"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadFileResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     upload_file_api_batches__batch_id__files_post: {
         parameters: {
             query?: never;
@@ -3587,6 +3812,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RetryResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rerun_batch_stt_api_batches__batch_id__rerun_stt_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchSttRerunIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkRerunOut"];
                 };
             };
             /** @description Validation Error */

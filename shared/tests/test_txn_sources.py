@@ -35,3 +35,35 @@ def test_quam_client_history_order_report_imports_all_parseable_rows() -> None:
     assert imported[0].raw["execution_type"] == "NewExec"
     assert imported[1].raw["order_status"] == "部分成交"
     assert imported[1].raw["execution_type"] == "TradeExec"
+
+
+def test_transaction_timezones_are_normalized_to_hong_kong() -> None:
+    config = {
+        "encoding": "utf-8",
+        "header_row": 1,
+        "timezone": "Asia/Hong_Kong",
+        "date_format": "%Y-%m-%d %H:%M:%S",
+        "column_mapping": {
+            "trade_date": "trade_date",
+            "ordered_at": "generated_at",
+            "executed_at": "generated_at",
+            "ext_txn_id": "order_id",
+            "stock_code": "stock",
+            "side": "side",
+        },
+        "side_values": {"buy": ["BUY"], "sell": ["SELL"]},
+    }
+    csv_data = "\n".join(
+        [
+            "trade_date,generated_at,order_id,stock,side",
+            "2026-05-13,2026-05-13 16:00:12 ET,1,700,BUY",
+            "2026-05-13,2026-05-14 04:00:12 HKT,2,700,BUY",
+        ]
+    ).encode()
+
+    imported = [t for t in parse_file("orders.csv", csv_data, config) if t.skip_reason is None]
+
+    assert imported[0].ordered_at is not None
+    assert imported[0].ordered_at.isoformat() == "2026-05-14T04:00:12+08:00"
+    assert imported[1].ordered_at is not None
+    assert imported[1].ordered_at.isoformat() == "2026-05-14T04:00:12+08:00"

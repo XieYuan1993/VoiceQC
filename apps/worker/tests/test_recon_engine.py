@@ -59,7 +59,8 @@ def txn(tid, ordered, broker, account, name, code, side, qty, price, channel="ph
 def instr(iid, rec, started, ext, code, name_raw, side, qty, price, ptype,
           client=None, account=None):
     return InstrView(
-        id=iid, recording_id=rec, call_started_at=hk(started), broker_ext=ext,
+        id=iid, recording_id=rec, call_started_at=hk(started), call_duration_seconds=120,
+        broker_ext=ext,
         stock_code=code, stock_name_raw=name_raw, side=side, quantity=qty,
         price=price, price_type=ptype, client_name_raw=client,
         client_account_raw=account,
@@ -160,7 +161,8 @@ def test_side_mismatch_disqualifies():
 
 def test_transaction_filters_use_imported_order_metadata():
     class Txn:
-        raw = {"order_status": "已委託", "execution_type": "NewExec"}
+        def __init__(self):
+            self.raw = {"order_status": "已委託", "execution_type": "NewExec"}
 
     assert _passes_transaction_filters(
         Txn(),

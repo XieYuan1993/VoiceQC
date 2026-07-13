@@ -214,6 +214,7 @@ async def _item_out(session: AsyncSession, item: ReconItem) -> ReconItemOut:
             id=rec.id,
             original_filename=rec.original_filename,
             broker_ext=rec.broker_ext,
+            broker_name=rec.broker_name,
             call_started_at=rec.call_started_at,
         )
         if rec

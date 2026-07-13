@@ -133,6 +133,7 @@ def _out(rec: Recording, has_transcript: bool, overall_score: float | None = Non
         error=rec.error,
         duration_seconds=float(rec.duration_seconds) if rec.duration_seconds is not None else None,
         broker_ext=rec.broker_ext,
+        broker_name=rec.broker_name,
         caller_number=rec.caller_number,
         client_name=rec.client_name,
         client_account=rec.client_account,

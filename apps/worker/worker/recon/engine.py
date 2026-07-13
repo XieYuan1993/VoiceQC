@@ -47,6 +47,8 @@ class TxnView:
     quantity: float | None
     price: float | None
     channel: str | None
+    broker_name: str | None = None
+    action_type: str | None = None
 
 
 @dataclass
@@ -54,6 +56,7 @@ class InstrView:
     id: str
     recording_id: str
     call_started_at: datetime | None
+    call_duration_seconds: float | None
     broker_ext: str | None
     stock_code: str | None
     stock_name_raw: str | None
@@ -63,6 +66,7 @@ class InstrView:
     price_type: str
     client_name_raw: str | None
     client_account_raw: str | None
+    broker_name: str | None = None
 
 
 @dataclass
@@ -71,7 +75,7 @@ class Params:
     auto_match: float = 0.75
     needs_review: float = 0.45
     before_hours: int = 6
-    after_minutes: int = 15
+    after_minutes: int = 3
     phone_only: bool = True
     quantity_tolerance: float = 0.10
     price_tolerance: float = 0.02
@@ -107,6 +111,17 @@ def fold(value: str | None) -> str:
 
 def _digits(value: str | None) -> str:
     return re.sub(r"\D", "", value or "")
+
+
+def _person_key(value: str | None) -> str:
+    folded = re.sub(r"[^0-9a-z]", "", unicodedata.normalize("NFKC", value or "").casefold())
+    return "".join(sorted(folded))
+
+
+def _broker_name_matches(txn: TxnView, instr: InstrView) -> bool:
+    txn_key = _person_key(txn.broker_name)
+    instr_key = _person_key(instr.broker_name)
+    return bool(txn_key and instr_key and txn_key == instr_key)
 
 
 def _name_similarity(a: str | None, b: str | None) -> float:
@@ -198,20 +213,21 @@ def _client_score(txn: TxnView, instr: InstrView) -> float:
 def _time_score(txn: TxnView, instr: InstrView, params: Params) -> float:
     if txn.anchor is None or instr.call_started_at is None:
         return 0.2
-    gap = txn.anchor - instr.call_started_at
-    if gap >= timedelta(0):
-        frac = gap / timedelta(hours=params.before_hours)
-    else:
-        frac = -gap / timedelta(minutes=params.after_minutes)
-    return max(0.2, 1.0 - 0.8 * min(float(frac), 1.0))
+    call_end = instr.call_started_at + timedelta(seconds=instr.call_duration_seconds or 0)
+    if instr.call_started_at <= txn.anchor <= call_end:
+        return 1.0
+    if txn.anchor > call_end:
+        frac = (txn.anchor - call_end) / timedelta(minutes=params.after_minutes)
+        return max(0.2, 1.0 - 0.8 * min(float(frac), 1.0))
+    return 0.2
 
 
 def _in_window(txn: TxnView, instr: InstrView, params: Params) -> bool:
     if txn.anchor is None or instr.call_started_at is None:
         return True  # cannot exclude on time — content must carry it
-    low = txn.anchor - timedelta(hours=params.before_hours)
-    high = txn.anchor + timedelta(minutes=params.after_minutes)
-    return low <= instr.call_started_at <= high
+    call_end = instr.call_started_at + timedelta(seconds=instr.call_duration_seconds or 0)
+    high = call_end + timedelta(minutes=params.after_minutes)
+    return instr.call_started_at <= txn.anchor <= high
 
 
 def score_pair(
@@ -243,7 +259,8 @@ def score_pair(
 
     penalty = None
     exts = broker_extensions.get(txn.broker_code or "")
-    if not exts or instr.broker_ext not in exts:
+    broker_name_match = _broker_name_matches(txn, instr)
+    if (not exts or instr.broker_ext not in exts) and not broker_name_match:
         score *= NO_BROKER_PENALTY
         penalty = f"broker mapping uncertain (x{NO_BROKER_PENALTY})"
 
@@ -251,6 +268,7 @@ def score_pair(
         "components": {k: round(v, 3) for k, v in components.items()},
         "weights": weights,
         "stock_note": stock_note,
+        "broker_name_match": broker_name_match,
         "penalty": penalty,
     }
     return round(score, 4), breakdown
@@ -330,7 +348,12 @@ def run_match(
     for txn in in_scope:
         exts = broker_extensions.get(txn.broker_code or "")
         for instr in instrs:
-            if exts and instr.broker_ext is not None and instr.broker_ext not in exts:
+            if (
+                exts
+                and instr.broker_ext is not None
+                and instr.broker_ext not in exts
+                and not _broker_name_matches(txn, instr)
+            ):
                 continue
             if not _in_window(txn, instr, params):
                 continue

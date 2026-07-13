@@ -33,6 +33,7 @@ from worker.recon import engine
 from worker.recon.engine import InstrView, Params, TxnView
 
 HK = ZoneInfo("Asia/Hong_Kong")
+PRESET_STATUSES = {"待報\uff08保價\uff09", "待報\uff08條件單\uff09"}
 
 _RECON_PARAM_KEYS = (
     "recon.weights",
@@ -104,6 +105,14 @@ def _raw_value(raw, key: str) -> str:
     return str(value).strip() if value is not None else ""
 
 
+def _raw_first(raw, *keys: str) -> str:
+    for key in keys:
+        value = _raw_value(raw, key)
+        if value:
+            return value
+    return ""
+
+
 def _passes_transaction_filters(txn: Transaction, filters: dict | None) -> bool:
     if not isinstance(filters, dict):
         return True
@@ -117,6 +126,102 @@ def _passes_transaction_filters(txn: Transaction, filters: dict | None) -> bool:
         isinstance(execution_types, list)
         and _raw_value(txn.raw, "execution_type") not in {str(v) for v in execution_types}
     )
+
+
+def _base_order_id(txn: Transaction) -> str:
+    raw_id = _raw_first(txn.raw, "ext_txn_id", "訂單號", "订单号")
+    return raw_id or (txn.ext_txn_id or str(txn.id))
+
+
+def _raw_number(raw, *keys: str) -> float | None:
+    text_value = _raw_first(raw, *keys)
+    if not text_value:
+        return None
+    try:
+        return float(text_value.replace(",", ""))
+    except ValueError:
+        return None
+
+
+def _is_batch_expiry(txn: Transaction) -> bool:
+    status = _raw_first(txn.raw, "order_status", "訂單狀態", "订单状态")
+    upstream = _raw_first(txn.raw, "upstream_broker", "上手經紀商", "上手经纪商").upper()
+    anchor = txn.ordered_at or txn.executed_at
+    if status != "已過期" or anchor is None:
+        return False
+    local_time = anchor.astimezone(HK).time()
+    if upstream == "HKEX" and time(16, 10, 0) <= local_time <= time(16, 10, 20):
+        return True
+    return upstream == "IB" and time(4, 0, 0) <= local_time <= time(4, 0, 30)
+
+
+def _is_rms_reject(txn: Transaction) -> bool:
+    info = _raw_first(txn.raw, "info", "信息").casefold()
+    return "rms." in info or "expire_date_reject" in info
+
+
+def _action_view(txn: Transaction, action_type: str) -> TxnView:
+    raw = txn.raw if isinstance(txn.raw, dict) else {}
+    quantity = _raw_number(raw, "order_quantity", "委託數量")
+    price = _raw_number(raw, "order_price", "委託價格")
+    return TxnView(
+        id=str(txn.id),
+        anchor=txn.ordered_at or txn.executed_at,
+        broker_code=txn.broker_code,
+        client_account=txn.client_account,
+        client_name=txn.client_name,
+        stock_code=txn.stock_code,
+        stock_name=txn.stock_name,
+        side=txn.side,
+        quantity=quantity if quantity is not None else (
+            float(txn.quantity) if txn.quantity is not None else None
+        ),
+        price=price if price is not None else (float(txn.price) if txn.price is not None else None),
+        channel=txn.channel,
+        broker_name=_raw_first(raw, "broker_name", "委託人", "委托人") or None,
+        action_type=action_type,
+    )
+
+
+def _transaction_action_views(
+    rows: list[Transaction], transaction_filters: dict | None = None
+) -> list[TxnView]:
+    grouped: dict[str, list[Transaction]] = {}
+    for txn in rows:
+        if _is_batch_expiry(txn) or _is_rms_reject(txn):
+            continue
+        grouped.setdefault(_base_order_id(txn), []).append(txn)
+
+    views: list[TxnView] = []
+    for group in grouped.values():
+        ordered = sorted(
+            group,
+            key=lambda t: t.ordered_at or t.executed_at or datetime.min.replace(tzinfo=UTC),
+        )
+        for index, txn in enumerate(ordered):
+            execution_type = _raw_first(txn.raw, "execution_type", "執行類型", "执行类型")
+            status = _raw_first(txn.raw, "order_status", "訂單狀態", "订单状态")
+            if execution_type == "NewExec":
+                previous = ordered[index - 1] if index > 0 else None
+                prev_status = (
+                    _raw_first(previous.raw, "order_status", "訂單狀態", "订单状态")
+                    if previous
+                    else ""
+                )
+                if prev_status in PRESET_STATUSES:
+                    continue
+                if _passes_transaction_filters(txn, transaction_filters):
+                    views.append(_action_view(txn, "new"))
+            elif execution_type == "ReplaceExec":
+                if _passes_transaction_filters(txn, transaction_filters):
+                    views.append(_action_view(txn, "replace"))
+            elif execution_type == "CanceledExec":
+                if _passes_transaction_filters(txn, transaction_filters):
+                    views.append(_action_view(txn, "cancel"))
+            elif status in PRESET_STATUSES:
+                if _passes_transaction_filters(txn, transaction_filters):
+                    views.append(_action_view(txn, "preset"))
+    return views
 
 
 def _date_range_from_snapshot(trade_date: date, snapshot: dict | None) -> tuple[date, date]:
@@ -134,28 +239,15 @@ def _load_views(
     session, trade_date_from, trade_date_to=None, transaction_filters: dict | None = None
 ) -> tuple[list[TxnView], list[InstrView], list[str]]:
     trade_date_to = trade_date_to or trade_date_from
-    txns = [
-        TxnView(
-            id=str(t.id),
-            anchor=t.ordered_at or t.executed_at,
-            broker_code=t.broker_code,
-            client_account=t.client_account,
-            client_name=t.client_name,
-            stock_code=t.stock_code,
-            stock_name=t.stock_name,
-            side=t.side,
-            quantity=float(t.quantity) if t.quantity is not None else None,
-            price=float(t.price) if t.price is not None else None,
-            channel=t.channel,
-        )
-        for t in session.execute(
+    txn_rows = list(
+        session.execute(
             select(Transaction).where(
                 Transaction.trade_date >= trade_date_from,
                 Transaction.trade_date <= trade_date_to,
             )
         ).scalars()
-        if _passes_transaction_filters(t, transaction_filters)
-    ]
+    )
+    txns = _transaction_action_views(txn_rows, transaction_filters)
 
     day_start = datetime.combine(trade_date_from, time.min, tzinfo=HK)
     day_end = datetime.combine(trade_date_to + timedelta(days=1), time.min, tzinfo=HK)
@@ -214,7 +306,11 @@ def _load_views(
                     id=str(ti.id),
                     recording_id=str(rec.id),
                     call_started_at=rec.call_started_at,
+                    call_duration_seconds=float(rec.duration_seconds)
+                    if rec.duration_seconds is not None
+                    else None,
                     broker_ext=rec.broker_ext,
+                    broker_name=rec.broker_name,
                     stock_code=ti.stock_code,
                     stock_name_raw=ti.stock_name_raw,
                     side=ti.side,

@@ -16,10 +16,17 @@ from datetime import date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-_ENCODINGS = {"utf-8": "utf-8", "utf-8-sig": "utf-8-sig", "big5": "big5hkscs"}
+_ENCODINGS = {
+    "utf-8": "utf-8",
+    "utf-8-sig": "utf-8-sig",
+    "big5": "big5hkscs",
+    "gb18030": "gb18030",
+}
 _DEFAULT_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 # Trailing timezone abbreviation some exports append, e.g. "2025-11-18 09:40:32 HKT".
-_TZ_SUFFIX = re.compile(r"\s+[A-Za-z]{2,5}$")
+_TZ_SUFFIX = re.compile(r"\s+([A-Za-z]{2,5})$")
+_HK_TZ = ZoneInfo("Asia/Hong_Kong")
+_ET_TZ = ZoneInfo("America/New_York")
 # Fallback datetime/date formats tried in addition to the config date_format, so a
 # range of real broker exports parse without per-file tuning.
 _DT_FORMATS = (
@@ -80,17 +87,35 @@ def _clean_text(value: Any) -> str | None:
     return text or None
 
 
+def _split_tz_suffix(value: str) -> tuple[str, str | None]:
+    text = value.strip()
+    match = _TZ_SUFFIX.search(text)
+    if not match:
+        return text, None
+    return text[: match.start()].strip(), match.group(1).upper()
+
+
+def _source_tz(suffix: str | None, default: ZoneInfo) -> ZoneInfo:
+    if suffix == "HKT":
+        return _HK_TZ
+    if suffix in {"ET", "EST", "EDT"}:
+        return _ET_TZ
+    return default
+
+
 def _parse_dt(value: Any, fmt: str, tz: ZoneInfo) -> datetime | None:
     if value is None or value == "":
         return None
     if isinstance(value, datetime):  # openpyxl gives real datetimes
-        return value.replace(tzinfo=tz) if value.tzinfo is None else value
+        parsed = value.replace(tzinfo=tz) if value.tzinfo is None else value
+        return parsed.astimezone(tz)
     if isinstance(value, date):  # date-only cell
         return datetime(value.year, value.month, value.day, tzinfo=tz)
-    text = _TZ_SUFFIX.sub("", str(value).strip())  # drop trailing " HKT" etc.
+    text, suffix = _split_tz_suffix(str(value))
+    source_tz = _source_tz(suffix, tz)
     for f in (fmt, *(x for x in _DT_FORMATS if x != fmt)):
         try:
-            return datetime.strptime(text, f).replace(tzinfo=tz)
+            return datetime.strptime(text, f).replace(tzinfo=source_tz).astimezone(tz)
         except ValueError:
             continue
     return None
@@ -104,7 +129,7 @@ def _parse_date(value: Any) -> date | None:
         return value.date()
     if isinstance(value, date):
         return value
-    text = _TZ_SUFFIX.sub("", str(value).strip())
+    text, _suffix = _split_tz_suffix(str(value))
     for f in (*_DATE_FORMATS, "%Y-%m-%d %H:%M:%S"):
         try:
             return datetime.strptime(text, f).date()

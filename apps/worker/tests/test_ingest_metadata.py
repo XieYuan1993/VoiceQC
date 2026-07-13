@@ -8,7 +8,6 @@ from worker.tasks.ingest import (
     _parse_call_export_text,
 )
 
-
 TXT = """Call Export
 ===========
 
@@ -26,6 +25,7 @@ Extension Name: Amy Lam
 
 class Rec:
     broker_ext = None
+    broker_name = None
     caller_number = None
     direction = "unknown"
     call_started_at = None
@@ -36,6 +36,7 @@ def test_parse_call_export_text_metadata():
 
     assert meta["started_at"] == datetime(2026, 5, 11, 8, 16, 54, tzinfo=HK)
     assert meta["broker_ext"] == "9539"
+    assert meta["broker_name"] == "Amy Lam"
     assert meta["caller_number"] == "97871494"
     assert meta["direction"] == "OUT"
     assert _metadata_key_from_start(meta) == "20260511_081654"
@@ -65,6 +66,7 @@ def test_apply_txt_metadata_to_recording_like_object():
     _apply_txt_metadata(rec, meta)
 
     assert rec.broker_ext == "9539"
+    assert rec.broker_name == "Amy Lam"
     assert rec.caller_number == "97871494"
     assert rec.direction == "OUT"
     assert rec.call_started_at == datetime(2026, 5, 11, 8, 16, 54, tzinfo=HK)

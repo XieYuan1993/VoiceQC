@@ -1009,6 +1009,7 @@ class Recording(Base):
     # Parsed from the filename via app_settings filename.parse_regex.
     call_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     broker_ext: Mapped[str | None] = mapped_column(Text)
+    broker_name: Mapped[str | None] = mapped_column(Text)
     caller_number: Mapped[str | None] = mapped_column(Text)
     direction: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'unknown'"))
     language_mode: Mapped[str | None] = mapped_column(Text)
