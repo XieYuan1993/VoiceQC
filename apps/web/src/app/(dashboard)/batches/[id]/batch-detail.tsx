@@ -28,6 +28,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -94,6 +95,7 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
   const [rerunOpen, setRerunOpen] = React.useState(false);
   const [rerunProvider, setRerunProvider] = React.useState("tencent");
   const [rerunModel, setRerunModel] = React.useState("16k_zh_en");
+  const [rerunAutoRetry, setRerunAutoRetry] = React.useState(true);
   const [rerunningStt, setRerunningStt] = React.useState(false);
 
   const batchRef = React.useRef<Batch | null>(null);
@@ -269,6 +271,7 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
         body: {
           asr_provider: rerunProvider,
           asr_model: model.length > 0 ? model : null,
+          auto_retry_limit: rerunAutoRetry ? 2 : 0,
         },
       });
       setNotice(`Queued ${res.queued} recording${res.queued === 1 ? "" : "s"} for STT rerun.`);
@@ -656,6 +659,19 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
                 value={rerunModel}
                 onChange={(e) => setRerunModel(e.target.value)}
                 placeholder="Provider default"
+              />
+            </div>
+            <div className="flex items-center justify-between gap-4 border-t pt-4">
+              <div>
+                <Label htmlFor="batch-auto-retry">Automatic retries</Label>
+                <p className="text-sm text-muted-foreground">
+                  Retry terminal STT or evaluation failures up to two times.
+                </p>
+              </div>
+              <Switch
+                id="batch-auto-retry"
+                checked={rerunAutoRetry}
+                onCheckedChange={setRerunAutoRetry}
               />
             </div>
           </div>

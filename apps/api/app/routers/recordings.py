@@ -595,6 +595,7 @@ async def reprocess(
     rec.attempts = 0
     if from_stage != "eval":
         rec.stt_operation_name = None
+        rec.stt_started_at = None
     rec.status = {"convert": "uploaded", "stt": "transcribing", "eval": "evaluating"}[from_stage]
     # Reactivate the batch so the rollup task recomputes its status — otherwise
     # the batch stays frozen at its old terminal value while this recording reruns.

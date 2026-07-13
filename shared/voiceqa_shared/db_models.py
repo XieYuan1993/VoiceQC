@@ -1025,7 +1025,13 @@ class Recording(Base):
     failed_stage: Mapped[str | None] = mapped_column(Text)  # convert|stt|eval|budget
     error: Mapped[str | None] = mapped_column(Text)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    auto_retry_remaining: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    rerun_asr_provider: Mapped[str | None] = mapped_column(Text)
+    rerun_asr_model: Mapped[str | None] = mapped_column(Text)
     stt_operation_name: Mapped[str | None] = mapped_column(Text)
+    stt_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = _now()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

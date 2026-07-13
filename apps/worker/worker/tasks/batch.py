@@ -35,6 +35,10 @@ def _resume_after() -> timedelta:
     return timedelta(seconds=max(60, int(settings.RECORDING_RESUME_STALE_SECONDS)))
 
 
+def _queue_redispatch_after() -> timedelta:
+    return timedelta(seconds=max(300, int(settings.RECORDING_QUEUE_REDISPATCH_SECONDS)))
+
+
 def _max_resume_attempts() -> int:
     return max(0, int(settings.RECORDING_RESUME_MAX_ATTEMPTS))
 
@@ -44,8 +48,10 @@ def _stage_for_status(status: str) -> str:
 
 
 def _stage_has_started(session, rec: Recording) -> bool:
+    if rec.status == "uploaded":
+        return False
     if rec.status == "transcribing":
-        return bool(rec.stt_operation_name)
+        return bool(rec.stt_started_at or rec.stt_operation_name)
     if rec.status == "evaluating":
         return (
             session.execute(
@@ -80,14 +86,16 @@ def update_progress(batch_id: str) -> None:
 
 @app.task(name="voiceqa.batch.sweep_stuck")
 def sweep_stuck() -> None:
-    """Beat task: resume stale recordings, then fail them if they exceed timeout."""
+    """Resume lost work and fail only stages that actually exceeded runtime."""
     from worker.tasks.pipeline import normalize_audio, transcribe
 
     now = datetime.now(UTC)
     failed: list[tuple[str, str, str, int]] = []
-    redispatched: list[tuple[str, str]] = []
-    queued_redispatched: list[tuple[str, str]] = []
+    redispatched: list[tuple[str, str, str | None, str | None]] = []
+    queued_redispatched: list[tuple[str, str, str | None, str | None]] = []
+    auto_redispatched: list[tuple[str, str, str | None, str | None]] = []
     resume_after = _resume_after()
+    queue_redispatch_after = _queue_redispatch_after()
     max_resume_attempts = _max_resume_attempts()
     with SessionLocal() as session:
         rows = (
@@ -107,28 +115,33 @@ def sweep_stuck() -> None:
             timeout = _timeout_for_status(rec.status)
             stage_started = _stage_has_started(session, rec)
             if not stage_started:
-                if age >= timeout:
+                if age >= queue_redispatch_after:
                     status = rec.status
                     rec.updated_at = now
                     rec.error = None
                     rec.failed_stage = None
-                    queued_redispatched.append((str(rec.id), status))
+                    queued_redispatched.append(
+                        (
+                            str(rec.id),
+                            status,
+                            rec.rerun_asr_provider,
+                            rec.rerun_asr_model,
+                        )
+                    )
                 continue
 
-            timed_out = age >= timeout
-            stale_exhausted = age >= resume_after and rec.attempts >= max_resume_attempts
-            if timed_out or stale_exhausted:
+            runtime_age = (
+                now - rec.stt_started_at
+                if rec.status == "transcribing" and rec.stt_started_at is not None
+                else age
+            )
+            timed_out = runtime_age >= timeout
+            if timed_out:
                 status = rec.status
-                rec.failed_stage = _stage_for_status(status)
-                rec.status = "failed"
                 reason = (
-                    f"timed out after {int(age.total_seconds() // 60)} minutes "
+                    f"timed out after {int(runtime_age.total_seconds() // 60)} minutes "
                     f"(limit {int(timeout.total_seconds() // 60)} minutes)"
-                    if timed_out
-                    else f"stale after {rec.attempts} recovery attempts"
                 )
-                rec.error = f"{status} {reason}"
-                rec.stt_operation_name = None if status == "transcribing" else rec.stt_operation_name
                 if status == "evaluating":
                     for ev in session.execute(
                         select(Evaluation).where(
@@ -137,34 +150,74 @@ def sweep_stuck() -> None:
                         )
                     ).scalars():
                         ev.status = "failed"
-                        ev.error = rec.error
+                        ev.error = f"{status} {reason}"
+                if rec.auto_retry_remaining > 0:
+                    rec.auto_retry_remaining -= 1
+                    rec.updated_at = now
+                    rec.failed_stage = None
+                    rec.error = f"automatic retry scheduled: {status} {reason}"
+                    rec.attempts = 0
+                    if status == "transcribing":
+                        rec.stt_operation_name = None
+                        rec.stt_started_at = None
+                    auto_redispatched.append(
+                        (
+                            str(rec.id),
+                            status,
+                            rec.rerun_asr_provider,
+                            rec.rerun_asr_model,
+                        )
+                    )
+                    continue
+                rec.failed_stage = _stage_for_status(status)
+                rec.status = "failed"
+                rec.error = f"{status} {reason}"
+                if status == "transcribing":
+                    rec.stt_operation_name = None
+                    rec.stt_started_at = None
                 failed.append((str(rec.id), str(rec.batch_id), status, int(age.total_seconds())))
                 continue
 
-            if age >= resume_after:
+            if age >= resume_after and rec.attempts < max_resume_attempts:
                 status = rec.status
                 rec.updated_at = now
                 rec.error = None
                 rec.failed_stage = None
                 rec.attempts += 1
-                redispatched.append((str(rec.id), status))
+                redispatched.append(
+                    (
+                        str(rec.id),
+                        status,
+                        rec.rerun_asr_provider,
+                        rec.rerun_asr_model,
+                    )
+                )
         session.commit()
 
-    for rid, status in [*queued_redispatched, *redispatched]:
+    for rid, status, asr_provider, asr_model in [
+        *queued_redispatched,
+        *redispatched,
+        *auto_redispatched,
+    ]:
         if status == "evaluating":
             from worker.tasks.evaluate import evaluate
 
             evaluate.delay(rid)
         elif status == "transcribing":
-            transcribe.delay(rid)
+            transcribe.delay(rid, asr_provider, asr_model)
         else:
-            chain(normalize_audio.si(rid), transcribe.si(rid)).apply_async()
+            chain(
+                normalize_audio.si(rid),
+                transcribe.si(rid, asr_provider, asr_model),
+            ).apply_async()
     for _rid, batch_id, _status, _age_seconds in failed:
         update_progress.delay(batch_id)
-    if queued_redispatched or redispatched or failed:
+    if queued_redispatched or redispatched or auto_redispatched or failed:
         logger.warning(
-            "sweep_stuck: {} queued redispatched, {} running redispatched, {} failed",
+            "sweep_stuck: {} queued redispatched, {} running redispatched, "
+            "{} automatic retries, {} failed",
             len(queued_redispatched),
             len(redispatched),
+            len(auto_redispatched),
             len(failed),
         )

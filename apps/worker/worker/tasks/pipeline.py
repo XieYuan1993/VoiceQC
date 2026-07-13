@@ -18,8 +18,9 @@ from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 
+from celery import chain
 from loguru import logger
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from voiceqa_shared import gcs
 from voiceqa_shared.db_models import (
@@ -45,6 +46,20 @@ _STAGE_BY_STATUS = {
     "evaluating": "eval",
 }
 
+_PERMANENT_AUTO_RETRY_MARKERS = (
+    "userhasnoamount",
+    "resource pack exhausted",
+    "failed to download audio file",
+    "no normalized audio uris",
+    "authfailure",
+    "invalidcredential",
+    "unauthorized",
+    "forbidden",
+    "secretid is not found",
+    "invalid secretid",
+    "invalid secretkey",
+)
+
 
 def _touch_updated_at(recording_id: str) -> None:
     """Refresh updated_at so sweep_stuck doesn't interfere during Celery retries."""
@@ -55,26 +70,127 @@ def _touch_updated_at(recording_id: str) -> None:
             session.commit()
 
 
+def _is_auto_retryable(stage: str, exc: Exception) -> bool:
+    if stage == "budget":
+        return False
+    message = str(exc).lower()
+    return not any(marker in message for marker in _PERMANENT_AUTO_RETRY_MARKERS)
+
+
+def _stt_timed_out(rec: Recording, now: datetime | None = None) -> bool:
+    if rec.stt_started_at is None:
+        return False
+    elapsed = (now or datetime.now(UTC)) - rec.stt_started_at
+    return elapsed.total_seconds() >= max(60, settings.RECORDING_STT_TIMEOUT_SECONDS)
+
+
+def _claim_stt_slot(session, rec: Recording) -> bool:
+    """Atomically claim one of the process-wide remote ASR slots."""
+    if rec.stt_started_at is not None:
+        return True
+
+    session.execute(
+        text(
+            "SELECT pg_advisory_xact_lock("
+            "hashtextextended(CAST(:scope AS text), 0))"
+        ),
+        {"scope": "voiceqa-stt-global"},
+    )
+    active = session.execute(
+        select(func.count())
+        .select_from(Recording)
+        .where(
+            Recording.status == "transcribing",
+            Recording.stt_started_at.is_not(None),
+        )
+    ).scalar_one()
+    if active >= max(1, int(settings.STT_MAX_IN_FLIGHT)):
+        rec.updated_at = datetime.now(UTC)
+        session.commit()
+        return False
+
+    rec.stt_started_at = datetime.now(UTC)
+    rec.updated_at = rec.stt_started_at
+    session.commit()
+    return True
+
+
 def _fail(recording_id: str, stage: str, exc: Exception) -> None:
     from worker.tasks.batch import update_progress
 
+    retry_plan: tuple[str, str | None, str | None] | None = None
     with SessionLocal() as session:
         rec = session.get(Recording, uuid.UUID(recording_id))
         if rec is None:
             return
-        rec.status = "failed"
-        rec.failed_stage = stage
-        rec.error = str(exc)[:2000]
-        rec.attempts += 1
         batch_id = str(rec.batch_id)
+        can_auto_retry = _is_auto_retryable(stage, exc) and rec.auto_retry_remaining > 0
+        if can_auto_retry:
+            retry_stage = stage
+            if stage == "stt" and not (
+                rec.gcs_uri_broker or rec.gcs_uri_customer or rec.gcs_uri_mono
+            ):
+                retry_stage = "convert"
+            rec.auto_retry_remaining -= 1
+            rec.status = {
+                "convert": "uploaded",
+                "stt": "transcribing",
+                "eval": "evaluating",
+            }[retry_stage]
+            rec.failed_stage = None
+            rec.error = f"automatic retry scheduled after {stage} failure: {exc}"[:2000]
+            rec.attempts = 0
+            if retry_stage != "eval":
+                rec.stt_operation_name = None
+                rec.stt_started_at = None
+            retry_plan = (retry_stage, rec.rerun_asr_provider, rec.rerun_asr_model)
+        else:
+            rec.status = "failed"
+            rec.failed_stage = stage
+            rec.error = str(exc)[:2000]
+            rec.attempts += 1
+            if stage == "stt":
+                rec.stt_started_at = None
         session.commit()
-    logger.error("recording {} failed at {}: {}", recording_id, stage, exc)
-    update_progress.delay(batch_id)
+    if retry_plan is not None:
+        retry_stage, asr_provider, asr_model = retry_plan
+        logger.warning(
+            "recording {} failed at {}; automatic retry from {} scheduled",
+            recording_id,
+            stage,
+            retry_stage,
+        )
+        _dispatch_auto_retry(recording_id, retry_stage, asr_provider, asr_model)
+    else:
+        logger.error("recording {} failed at {}: {}", recording_id, stage, exc)
+        update_progress.delay(batch_id)
 
 
 @lru_cache(maxsize=4)
 def _adapter(provider: str):
     return factory.create(provider)
+
+
+def _dispatch_auto_retry(
+    recording_id: str,
+    stage: str,
+    asr_provider: str | None,
+    asr_model: str | None,
+) -> None:
+    if stage == "eval":
+        from worker.tasks.evaluate import evaluate
+
+        evaluate.apply_async(args=[recording_id], countdown=60)
+    elif stage == "stt":
+        transcribe.apply_async(
+            args=[recording_id, asr_provider, asr_model],
+            countdown=60,
+        )
+    else:
+        chain(
+            normalize_audio.si(recording_id),
+            transcribe.si(recording_id, asr_provider, asr_model),
+        ).apply_async(countdown=60)
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +244,8 @@ def normalize_audio(self, recording_id: str) -> None:
             rec.channels = info.channels
             rec.format = info.format
             rec.status = "transcribing"
+            rec.stt_operation_name = None
+            rec.stt_started_at = None
             session.commit()
         logger.info(
             "normalized {}: {}ch {}Hz {:.1f}s", recording_id, info.channels,
@@ -261,7 +379,7 @@ def _interleave_turns(seg_pairs: list[tuple[str, object]]) -> list[tuple[str, in
     return out
 
 
-@app.task(name="voiceqa.pipeline.transcribe", bind=True, max_retries=180)
+@app.task(name="voiceqa.pipeline.transcribe", bind=True, max_retries=None)
 def transcribe(
     self,
     recording_id: str,
@@ -286,6 +404,15 @@ def transcribe(
         if not files:
             _fail(recording_id, "stt", RuntimeError("no normalized audio uris"))
             return
+
+        if _stt_timed_out(rec):
+            exc = RuntimeError("stt timed out waiting for ASR result")
+            _fail(recording_id, "stt", exc)
+            raise exc
+
+        if not _claim_stt_slot(session, rec):
+            logger.debug("recording {} waiting for a remote ASR slot", recording_id)
+            raise self.retry(countdown=60)
 
         provider = asr_provider_override or get_setting(session, project_id, "asr.provider", "google")
         adapter = _adapter(provider)
@@ -326,9 +453,10 @@ def transcribe(
                 )
             )
             if transient:
-                if self.request.retries >= self.max_retries:
-                    _fail(recording_id, "stt", RuntimeError("stt retry limit exceeded"))
-                    raise
+                if _stt_timed_out(rec):
+                    timeout_exc = RuntimeError("stt timed out waiting for ASR result")
+                    _fail(recording_id, "stt", timeout_exc)
+                    raise timeout_exc from e
                 _touch_updated_at(recording_id)
                 raise self.retry(countdown=60, exc=e) from e
             _fail(recording_id, "stt", e)
@@ -337,7 +465,7 @@ def transcribe(
         if results is None:
             # LRO still running — poll again shortly. acks_late + the stored
             # operation name make this resumable across worker restarts.
-            if self.request.retries >= self.max_retries:
+            if _stt_timed_out(rec):
                 exc = RuntimeError("stt timed out waiting for ASR result")
                 _fail(recording_id, "stt", exc)
                 raise exc
@@ -428,6 +556,7 @@ def transcribe(
         )
 
         rec.status = "evaluating"
+        rec.stt_started_at = None
         rec.error = None
         rec.failed_stage = None
         if errors:

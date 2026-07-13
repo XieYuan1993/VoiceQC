@@ -1077,6 +1077,10 @@ def evaluate(self, recording_id: str) -> None:
 
         rec.status = "completed"
         rec.failed_stage = None
+        rec.stt_started_at = None
+        rec.auto_retry_remaining = 0
+        rec.rerun_asr_provider = None
+        rec.rerun_asr_model = None
         session.commit()
 
     logger.info(

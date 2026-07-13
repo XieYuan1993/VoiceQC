@@ -21,6 +21,7 @@ import type { Batch, BatchList } from "@/lib/types";
 
 import { cookieHeader } from "../_data";
 import { BatchFilters } from "./filters";
+import { BulkBatchActions } from "./bulk-batch-actions";
 import { NewBatchButton } from "./new-batch-button";
 
 const PAGE_SIZE = 20;
@@ -100,7 +101,12 @@ export default async function BatchesPage({
             Recording upload batches and processing runs.
           </p>
         </div>
-        {manage && <NewBatchButton />}
+        {manage && (
+          <div className="flex items-start gap-2">
+            <BulkBatchActions />
+            <NewBatchButton />
+          </div>
+        )}
       </div>
 
       <BatchFilters key={`${status}|${q}|${from}|${to}`} status={status} q={q} from={from} to={to} />

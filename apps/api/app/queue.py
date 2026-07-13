@@ -25,7 +25,13 @@ def send(task_name: str, *args) -> None:
     celery_client.send_task(task_name, args=list(args), queue=_QUEUES.get(task_name, "default"))
 
 
-def send_pipeline_chain(recording_id: str, *, from_stage: str = "convert") -> None:
+def send_pipeline_chain(
+    recording_id: str,
+    *,
+    from_stage: str = "convert",
+    asr_provider: str | None = None,
+    asr_model: str | None = None,
+) -> None:
     """Dispatch the per-recording pipeline starting at the given stage.
 
     Stages chain themselves downstream (transcribe dispatches evaluate),
@@ -33,9 +39,12 @@ def send_pipeline_chain(recording_id: str, *, from_stage: str = "convert") -> No
     """
 
     def sig(task_name: str):
+        args = [recording_id]
+        if task_name == "voiceqa.pipeline.transcribe":
+            args.extend([asr_provider, asr_model])
         return signature(
             task_name,
-            args=[recording_id],
+            args=args,
             app=celery_client,
             immutable=True,
             queue=_QUEUES[task_name],

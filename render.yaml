@@ -170,6 +170,8 @@ services:
         value: stt
       - key: WORKER_CONCURRENCY
         value: "2"
+      - key: STT_MAX_IN_FLIGHT
+        value: "3"
       - key: WORKER_MAX_TASKS_PER_CHILD
         value: "5"
       - key: WORKER_MAX_MEMORY_PER_CHILD

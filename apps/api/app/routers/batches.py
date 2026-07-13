@@ -28,6 +28,7 @@ from app.schemas import (
     BatchListOut,
     BatchOut,
     BatchSttRerunIn,
+    BulkBatchSttRerunOut,
     BulkRerunOut,
     DirectUploadComplete,
     DirectUploadInit,
@@ -42,6 +43,8 @@ AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".flac", ".ogg"}
 MAX_AUDIO_BYTES = 200 * 1024 * 1024
 MAX_ZIP_BYTES = 2 * 1024 * 1024 * 1024
 DIRECT_UPLOAD_EXPIRES_SECONDS = 15 * 60
+TERMINAL_BATCH_STATUSES = ("completed", "completed_with_errors", "failed")
+ACTIVE_RECORDING_STATUSES = ("uploaded", "converting", "transcribing", "evaluating")
 
 
 async def _counts(session: AsyncSession, batch_id: uuid.UUID) -> BatchCounts:
@@ -160,6 +163,26 @@ async def _get_batch(session: AsyncSession, batch_id: uuid.UUID) -> UploadBatch:
     return batch
 
 
+def _prepare_stt_rerun(rec: Recording, payload: BatchSttRerunIn) -> str | None:
+    has_normalized = bool(rec.gcs_uri_broker or rec.gcs_uri_customer or rec.gcs_uri_mono)
+    if has_normalized:
+        stage, recording_status = "stt", "transcribing"
+    elif rec.gcs_uri_raw:
+        stage, recording_status = "convert", "uploaded"
+    else:
+        return None
+    rec.status = recording_status
+    rec.failed_stage = None
+    rec.error = None
+    rec.stt_operation_name = None
+    rec.stt_started_at = None
+    rec.attempts = 0
+    rec.auto_retry_remaining = payload.auto_retry_limit
+    rec.rerun_asr_provider = payload.asr_provider
+    rec.rerun_asr_model = payload.asr_model
+    return stage
+
+
 def _upload_kind_and_limit(filename: str) -> tuple[str, int]:
     ext = Path(filename).suffix.lower()
     if ext == ".zip":
@@ -177,6 +200,104 @@ def _direct_upload_key(batch_id: uuid.UUID, upload_id: str, filename: str, kind:
     if kind == "zip":
         return f"raw/{batch_id}/_zips/{upload_id}/{safe_name}"
     return f"raw/{batch_id}/{upload_id}/{safe_name}"
+
+
+@router.post("/bulk-rerun-stt", response_model=BulkBatchSttRerunOut)
+async def bulk_rerun_stt(
+    payload: BatchSttRerunIn,
+    project_id: uuid.UUID = Depends(resolve_project_id),
+    user: User = Depends(require(BATCHES_MANAGE)),
+    session: AsyncSession = Depends(get_session),
+    meta: ClientMeta = Depends(client_meta),
+) -> BulkBatchSttRerunOut:
+    """Re-transcribe every terminal recording in every completed project batch."""
+    batches = (
+        (
+            await session.execute(
+                select(UploadBatch).where(
+                    UploadBatch.project_id == project_id,
+                    UploadBatch.finalized_at.is_not(None),
+                    UploadBatch.status.in_(TERMINAL_BATCH_STATUSES),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    batch_by_id = {batch.id: batch for batch in batches}
+    rows = []
+    if batch_by_id:
+        rows = (
+            (
+                await session.execute(
+                    select(Recording).where(
+                        Recording.batch_id.in_(list(batch_by_id)),
+                        Recording.status.in_(("completed", "failed")),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    skipped_active = (
+        await session.execute(
+            select(func.count())
+            .select_from(Recording)
+            .join(UploadBatch, Recording.batch_id == UploadBatch.id)
+            .where(
+                UploadBatch.project_id == project_id,
+                UploadBatch.status == "processing",
+                Recording.status.in_(ACTIVE_RECORDING_STATUSES),
+            )
+        )
+    ).scalar_one()
+
+    plans: list[tuple[str, str]] = []
+    affected_batch_ids: set[uuid.UUID] = set()
+    skipped_no_audio = 0
+    for rec in rows:
+        stage = _prepare_stt_rerun(rec, payload)
+        if stage is None:
+            skipped_no_audio += 1
+            continue
+        plans.append((str(rec.id), stage))
+        affected_batch_ids.add(rec.batch_id)
+    for batch_id in affected_batch_ids:
+        batch_by_id[batch_id].status = "processing"
+
+    log_audit(
+        session,
+        action="batch.rerun_stt_bulk",
+        user_id=user.id,
+        actor_email=user.email,
+        object_type="project",
+        object_id=str(project_id),
+        details={
+            "count": len(plans),
+            "batches": len(affected_batch_ids),
+            "asr_provider": payload.asr_provider,
+            "asr_model": payload.asr_model,
+            "auto_retry_limit": payload.auto_retry_limit,
+            "skipped_active": skipped_active,
+            "skipped_no_audio": skipped_no_audio,
+        },
+        ip=meta.ip,
+        user_agent=meta.user_agent,
+    )
+    await session.commit()
+    for recording_id, stage in plans:
+        queue.send_pipeline_chain(
+            recording_id,
+            from_stage=stage,
+            asr_provider=payload.asr_provider,
+            asr_model=payload.asr_model,
+        )
+    return BulkBatchSttRerunOut(
+        queued=len(plans),
+        batches=len(affected_batch_ids),
+        skipped_active=skipped_active,
+        skipped_no_audio=skipped_no_audio,
+    )
 
 
 @router.get("/{batch_id}", response_model=BatchOut)
@@ -472,24 +593,29 @@ async def retry_failed(
         .scalars()
         .all()
     )
-    plans: list[tuple[str, str]] = []
+    plans: list[tuple[str, str, str | None, str | None]] = []
     for rec in failed:
-        has_audio = rec.gcs_uri_broker or rec.gcs_uri_mono
+        has_audio = rec.gcs_uri_broker or rec.gcs_uri_customer or rec.gcs_uri_mono
         if rec.failed_stage in ("eval", "budget"):
             # Transcript already exists — resume at evaluation.
             stage, status_ = "eval", "evaluating"
         elif rec.failed_stage == "stt" and has_audio:
             stage, status_ = "stt", "transcribing"
             rec.stt_operation_name = None
+            rec.stt_started_at = None
         else:
             stage, status_ = "convert", "uploaded"
             rec.stt_operation_name = None
+            rec.stt_started_at = None
         rec.error = None
         rec.failed_stage = None
         rec.status = status_
         rec.attempts = 0
-        plans.append((str(rec.id), stage))
-    if plans and batch.status == "completed_with_errors":
+        rec.auto_retry_remaining = max(rec.auto_retry_remaining, 2)
+        plans.append(
+            (str(rec.id), stage, rec.rerun_asr_provider, rec.rerun_asr_model)
+        )
+    if plans and batch.status in TERMINAL_BATCH_STATUSES:
         batch.status = "processing"
     log_audit(
         session, action="batch.retry_failed", user_id=user.id, actor_email=user.email,
@@ -497,8 +623,13 @@ async def retry_failed(
         ip=meta.ip, user_agent=meta.user_agent,
     )
     await session.commit()
-    for rid, stage in plans:
-        queue.send_pipeline_chain(rid, from_stage=stage)
+    for rid, stage, asr_provider, asr_model in plans:
+        queue.send_pipeline_chain(
+            rid,
+            from_stage=stage,
+            asr_provider=asr_provider,
+            asr_model=asr_model,
+        )
     return RetryResult(retried=len(plans))
 
 
@@ -524,11 +655,7 @@ async def rerun_batch_stt(
         )
     ).scalars().all()
     for rec in rows:
-        rec.status = "transcribing"
-        rec.failed_stage = None
-        rec.error = None
-        rec.stt_operation_name = None
-        rec.attempts = 0
+        _prepare_stt_rerun(rec, payload)
     if rows:
         batch.status = "processing"
     log_audit(
@@ -538,14 +665,16 @@ async def rerun_batch_stt(
             "count": len(rows),
             "asr_provider": payload.asr_provider,
             "asr_model": payload.asr_model,
+            "auto_retry_limit": payload.auto_retry_limit,
         },
         ip=meta.ip, user_agent=meta.user_agent,
     )
     await session.commit()
     for rec in rows:
-        queue.celery_client.send_task(
-            "voiceqa.pipeline.transcribe",
-            args=[str(rec.id), payload.asr_provider, payload.asr_model],
-            queue="stt",
+        queue.send_pipeline_chain(
+            str(rec.id),
+            from_stage="stt",
+            asr_provider=payload.asr_provider,
+            asr_model=payload.asr_model,
         )
     return BulkRerunOut(queued=len(rows))

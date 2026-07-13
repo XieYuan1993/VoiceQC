@@ -123,6 +123,14 @@ class RetryResult(BaseModel):
 class BatchSttRerunIn(BaseModel):
     asr_provider: str = Field(pattern="^(tencent|qwen|google|gemini)$")
     asr_model: str | None = Field(default=None, min_length=1, max_length=200)
+    auto_retry_limit: int = Field(default=2, ge=0, le=5)
+
+
+class BulkBatchSttRerunOut(BaseModel):
+    queued: int
+    batches: int
+    skipped_active: int
+    skipped_no_audio: int
 
 
 class RecordingOut(BaseModel):
