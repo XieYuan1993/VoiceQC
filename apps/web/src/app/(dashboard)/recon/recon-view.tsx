@@ -8,14 +8,6 @@ import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -57,42 +49,10 @@ const MATCH_STATUSES = [
   "manual_linked",
 ] as const;
 
-const ORDER_STATUS_OPTIONS = [
-  "已委託",
-  "成交",
-  "部分成交",
-  "已過期",
-  "待報",
-  "已撤單",
-  "待報（保價）",
-  "已修改",
-  "待報（條件單）",
-  "已拒絕",
-];
-
-const EXECUTION_TYPE_OPTIONS = [
-  "",
-  "TradeExec",
-  "NewExec",
-  "ExpiredExec",
-  "ReplaceExec",
-  "CanceledExec",
-];
-
-interface RunFilters {
-  order_statuses: string[];
-  execution_types: string[];
-}
-
 interface RunRange {
   from: string;
   to: string;
 }
-
-const DEFAULT_RUN_FILTERS: RunFilters = {
-  order_statuses: ORDER_STATUS_OPTIONS,
-  execution_types: EXECUTION_TYPE_OPTIONS,
-};
 
 function runRangeLabel(run: Pick<ReconRun, "trade_date" | "trade_date_from" | "trade_date_to">) {
   const from = run.trade_date_from || run.trade_date;
@@ -161,125 +121,6 @@ function StatTile({
   return <div className="rounded-lg border bg-card p-3">{inner}</div>;
 }
 
-function toggleValue(values: string[], value: string): string[] {
-  return values.includes(value) ? values.filter((v) => v !== value) : [...values, value];
-}
-
-function RunFiltersDialog({
-  range,
-  pending,
-  onCancel,
-  onConfirm,
-}: {
-  range: RunRange;
-  pending: boolean;
-  onCancel: () => void;
-  onConfirm: (filters: RunFilters) => void;
-}) {
-  const [orderStatuses, setOrderStatuses] = React.useState<string[]>(
-    DEFAULT_RUN_FILTERS.order_statuses,
-  );
-  const [executionTypes, setExecutionTypes] = React.useState<string[]>(
-    DEFAULT_RUN_FILTERS.execution_types,
-  );
-
-  return (
-    <Dialog open onOpenChange={(open) => !open && !pending && onCancel()}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Run reconciliation</DialogTitle>
-          <DialogDescription>
-            Select which imported transaction rows participate in matching for{" "}
-            {range.from === range.to ? range.from : `${range.from} - ${range.to}`}.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <Label>訂單狀態</Label>
-              <Button
-                type="button"
-                variant="ghost"
-                className="h-auto px-1 py-0.5 text-xs"
-                onClick={() =>
-                  setOrderStatuses(
-                    orderStatuses.length === ORDER_STATUS_OPTIONS.length ? [] : ORDER_STATUS_OPTIONS,
-                  )
-                }
-              >
-                {orderStatuses.length === ORDER_STATUS_OPTIONS.length ? "Clear" : "All"}
-              </Button>
-            </div>
-            <div className="max-h-64 space-y-1.5 overflow-auto rounded-md border p-3">
-              {ORDER_STATUS_OPTIONS.map((value) => (
-                <label key={value} className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={orderStatuses.includes(value)}
-                    onChange={() => setOrderStatuses((prev) => toggleValue(prev, value))}
-                    className="h-4 w-4 rounded border-input"
-                  />
-                  <span>{value}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <Label>執行類型</Label>
-              <Button
-                type="button"
-                variant="ghost"
-                className="h-auto px-1 py-0.5 text-xs"
-                onClick={() =>
-                  setExecutionTypes(
-                    executionTypes.length === EXECUTION_TYPE_OPTIONS.length
-                      ? []
-                      : EXECUTION_TYPE_OPTIONS,
-                  )
-                }
-              >
-                {executionTypes.length === EXECUTION_TYPE_OPTIONS.length ? "Clear" : "All"}
-              </Button>
-            </div>
-            <div className="max-h-64 space-y-1.5 overflow-auto rounded-md border p-3">
-              {EXECUTION_TYPE_OPTIONS.map((value) => (
-                <label key={value || "__blank"} className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={executionTypes.includes(value)}
-                    onChange={() => setExecutionTypes((prev) => toggleValue(prev, value))}
-                    className="h-4 w-4 rounded border-input"
-                  />
-                  <span>{value || "(blank)"}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={onCancel} disabled={pending}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            disabled={pending || orderStatuses.length === 0 || executionTypes.length === 0}
-            onClick={() =>
-              onConfirm({
-                order_statuses: orderStatuses,
-                execution_types: executionTypes,
-              })
-            }
-          >
-            {pending && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />}
-            Run
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 export function ReconView({ canManage }: { canManage: boolean }) {
   const [runs, setRuns] = React.useState<ReconRun[] | null>(null);
   const [runsError, setRunsError] = React.useState<string | null>(null);
@@ -289,7 +130,6 @@ export function ReconView({ canManage }: { canManage: boolean }) {
   const [tradeDateTo, setTradeDateTo] = React.useState(todayISO());
   const [creating, setCreating] = React.useState(false);
   const [actionError, setActionError] = React.useState<string | null>(null);
-  const [pendingRunRange, setPendingRunRange] = React.useState<RunRange | null>(null);
 
   const [tab, setTab] = React.useState<Bucket>("matched");
   const [page, setPage] = React.useState(1);
@@ -392,7 +232,7 @@ export function ReconView({ canManage }: { canManage: boolean }) {
     void loadItems();
   }, [loadItems, selectedId, selectedStatus]);
 
-  async function runFor(range: RunRange, filters: RunFilters) {
+  async function runFor(range: RunRange) {
     if (!range.from || !range.to) return;
     setCreating(true);
     setActionError(null);
@@ -401,11 +241,9 @@ export function ReconView({ canManage }: { canManage: boolean }) {
         body: {
           trade_date_from: range.from,
           trade_date_to: range.to,
-          transaction_filters: filters,
         },
       });
       setSelectedId(run.id);
-      setPendingRunRange(null);
       await loadRuns();
     } catch (e) {
       setActionError(getApiErrorMessage(e));
@@ -418,7 +256,7 @@ export function ReconView({ canManage }: { canManage: boolean }) {
   // reject/manual-link decisions forward, so a re-run never loses review work.
   function onRun() {
     if (!tradeDateFrom || !tradeDateTo) return;
-    setPendingRunRange({ from: tradeDateFrom, to: tradeDateTo });
+    void runFor({ from: tradeDateFrom, to: tradeDateTo });
   }
 
   // Cross-origin API (:7870) — an <a href> would not carry the session cookie
@@ -621,7 +459,7 @@ export function ReconView({ canManage }: { canManage: boolean }) {
                 variant="outline"
                 size="sm"
                 onClick={() =>
-                  setPendingRunRange({
+                  void runFor({
                     from: selected.trade_date_from || selected.trade_date,
                     to: selected.trade_date_to || selected.trade_date_from || selected.trade_date,
                   })
@@ -927,15 +765,6 @@ export function ReconView({ canManage }: { canManage: boolean }) {
           canReview={canManage}
           onClose={() => setDrawerId(null)}
           onUpdated={onItemUpdated}
-        />
-      )}
-
-      {pendingRunRange !== null && (
-        <RunFiltersDialog
-          range={pendingRunRange}
-          pending={creating}
-          onCancel={() => setPendingRunRange(null)}
-          onConfirm={(filters) => void runFor(pendingRunRange, filters)}
         />
       )}
     </div>
