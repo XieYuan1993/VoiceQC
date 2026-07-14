@@ -62,6 +62,10 @@ app.conf.update(
         "voiceqa.kb.ingest_document": {"queue": "llm"},
     },
     beat_schedule={
+        "dispatch-waiting-stt": {
+            "task": "voiceqa.batch.dispatch_stt_waiting",
+            "schedule": 15.0,
+        },
         "sweep-stuck-recordings": {
             "task": "voiceqa.batch.sweep_stuck",
             "schedule": 300.0,

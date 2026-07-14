@@ -88,6 +88,7 @@ def test_permanent_provider_failure_is_not_automatically_retried(monkeypatch) ->
         lambda *args: dispatched.append(args),
     )
     monkeypatch.setattr(batch.update_progress, "delay", progress_updates.append)
+    monkeypatch.setattr(batch.dispatch_stt_waiting, "delay", lambda: None)
 
     pipeline._fail(
         str(recording.id),
@@ -126,3 +127,80 @@ def test_uploaded_recording_is_still_queued_not_running() -> None:
     rec = SimpleNamespace(status="uploaded")
 
     assert batch._stage_has_started(None, rec) is False
+
+
+def test_available_stt_slots_are_bounded_by_remote_limit(monkeypatch) -> None:
+    monkeypatch.setattr(batch.settings, "STT_MAX_IN_FLIGHT", 3)
+
+    assert batch._available_stt_slots(0) == 3
+    assert batch._available_stt_slots(2) == 1
+    assert batch._available_stt_slots(3) == 0
+    assert batch._available_stt_slots(5) == 0
+
+
+class _DispatchResult:
+    def __init__(self, *, scalar=None, rows=None) -> None:
+        self.scalar = scalar
+        self.rows = rows
+
+    def scalar_one(self):
+        return self.scalar
+
+    def scalars(self):
+        return self
+
+    def all(self):
+        return self.rows
+
+
+class _DispatchSession:
+    def __init__(self, active, rows) -> None:
+        self.results = [
+            _DispatchResult(),
+            _DispatchResult(scalar=active),
+            _DispatchResult(rows=rows),
+        ]
+        self.committed = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args) -> None:
+        return None
+
+    def execute(self, _statement, _params=None):
+        return self.results.pop(0)
+
+    def commit(self) -> None:
+        self.committed = True
+
+
+def test_dispatcher_reserves_only_available_stt_slots(monkeypatch) -> None:
+    rows = [
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            rerun_asr_provider="tencent",
+            rerun_asr_model="16k_zh_en",
+            stt_started_at=None,
+            updated_at=None,
+        )
+        for _ in range(2)
+    ]
+    session = _DispatchSession(active=1, rows=rows)
+    dispatched = []
+    monkeypatch.setattr(batch.settings, "STT_MAX_IN_FLIGHT", 3)
+    monkeypatch.setattr(batch, "SessionLocal", lambda: session)
+    monkeypatch.setattr(
+        pipeline.transcribe,
+        "delay",
+        lambda *args: dispatched.append(args),
+    )
+
+    queued = batch.dispatch_stt_waiting()
+
+    assert queued == 2
+    assert session.committed is True
+    assert all(row.stt_started_at is not None for row in rows)
+    assert dispatched == [
+        (str(row.id), "tencent", "16k_zh_en") for row in rows
+    ]

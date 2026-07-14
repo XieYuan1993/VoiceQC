@@ -115,8 +115,21 @@ def _claim_stt_slot(session, rec: Recording) -> bool:
     return True
 
 
+def _try_stt_recording_lock(session, recording_id: str) -> bool:
+    """Serialize provider submission and result persistence per recording."""
+    return bool(
+        session.execute(
+            text(
+                "SELECT pg_try_advisory_xact_lock("
+                "hashtextextended(CAST(:scope AS text), 0))"
+            ),
+            {"scope": f"voiceqa-stt-recording:{recording_id}"},
+        ).scalar_one()
+    )
+
+
 def _fail(recording_id: str, stage: str, exc: Exception) -> None:
-    from worker.tasks.batch import update_progress
+    from worker.tasks.batch import dispatch_stt_waiting, update_progress
 
     retry_plan: tuple[str, str | None, str | None] | None = None
     with SessionLocal() as session:
@@ -164,6 +177,8 @@ def _fail(recording_id: str, stage: str, exc: Exception) -> None:
     else:
         logger.error("recording {} failed at {}: {}", recording_id, stage, exc)
         update_progress.delay(batch_id)
+        if stage == "stt":
+            dispatch_stt_waiting.delay()
 
 
 @lru_cache(maxsize=4)
@@ -182,10 +197,9 @@ def _dispatch_auto_retry(
 
         evaluate.apply_async(args=[recording_id], countdown=60)
     elif stage == "stt":
-        transcribe.apply_async(
-            args=[recording_id, asr_provider, asr_model],
-            countdown=60,
-        )
+        from worker.tasks.batch import dispatch_stt_waiting
+
+        dispatch_stt_waiting.delay()
     else:
         chain(
             normalize_audio.si(recording_id),
@@ -411,8 +425,14 @@ def transcribe(
             raise exc
 
         if not _claim_stt_slot(session, rec):
-            logger.debug("recording {} waiting for a remote ASR slot", recording_id)
-            raise self.retry(countdown=60)
+            logger.debug("recording {} returned to the DB-backed STT queue", recording_id)
+            return
+        if not _try_stt_recording_lock(session, recording_id):
+            logger.debug("duplicate STT delivery ignored for {}", recording_id)
+            return
+        session.refresh(rec)
+        if rec.status != "transcribing":
+            return
 
         provider = asr_provider_override or get_setting(session, project_id, "asr.provider", "google")
         adapter = _adapter(provider)
@@ -436,6 +456,12 @@ def transcribe(
                 )
                 rec.language_mode = language_mode
                 session.commit()
+                if not _try_stt_recording_lock(session, recording_id):
+                    logger.debug("STT polling handed to another delivery for {}", recording_id)
+                    return
+                session.refresh(rec)
+                if rec.status != "transcribing":
+                    return
 
             results = adapter.fetch_result(rec.stt_operation_name)
         except Exception as e:
@@ -566,6 +592,8 @@ def transcribe(
     logger.info("transcribed {}: {} segments, {:.0f}s billed", recording_id, len(segments), billed)
     # Stage 3 (Phase 2): evaluation. Local import — evaluate.py imports
     # _fail from this module.
+    from worker.tasks.batch import dispatch_stt_waiting
     from worker.tasks.evaluate import evaluate as evaluate_task
 
     evaluate_task.delay(recording_id)
+    dispatch_stt_waiting.delay()

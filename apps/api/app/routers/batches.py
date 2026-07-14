@@ -285,13 +285,19 @@ async def bulk_rerun_stt(
         user_agent=meta.user_agent,
     )
     await session.commit()
+    has_waiting_stt = False
     for recording_id, stage in plans:
+        if stage == "stt":
+            has_waiting_stt = True
+            continue
         queue.send_pipeline_chain(
             recording_id,
             from_stage=stage,
             asr_provider=payload.asr_provider,
             asr_model=payload.asr_model,
         )
+    if has_waiting_stt:
+        queue.send("voiceqa.batch.dispatch_stt_waiting")
     return BulkBatchSttRerunOut(
         queued=len(plans),
         batches=len(affected_batch_ids),
@@ -623,13 +629,19 @@ async def retry_failed(
         ip=meta.ip, user_agent=meta.user_agent,
     )
     await session.commit()
+    has_waiting_stt = False
     for rid, stage, asr_provider, asr_model in plans:
+        if stage == "stt":
+            has_waiting_stt = True
+            continue
         queue.send_pipeline_chain(
             rid,
             from_stage=stage,
             asr_provider=asr_provider,
             asr_model=asr_model,
         )
+    if has_waiting_stt:
+        queue.send("voiceqa.batch.dispatch_stt_waiting")
     return RetryResult(retried=len(plans))
 
 
@@ -670,11 +682,6 @@ async def rerun_batch_stt(
         ip=meta.ip, user_agent=meta.user_agent,
     )
     await session.commit()
-    for rec in rows:
-        queue.send_pipeline_chain(
-            str(rec.id),
-            from_stage="stt",
-            asr_provider=payload.asr_provider,
-            asr_model=payload.asr_model,
-        )
+    if rows:
+        queue.send("voiceqa.batch.dispatch_stt_waiting")
     return BulkRerunOut(queued=len(rows))

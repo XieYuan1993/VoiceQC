@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 
 from celery import chain
 from loguru import logger
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select, text
 from voiceqa_shared.db_models import Evaluation, Recording, UploadBatch
 
 from worker.celery_app import app
@@ -19,6 +19,7 @@ from worker.db import SessionLocal
 from worker.settings import settings
 
 NON_TERMINAL = ("uploaded", "converting", "transcribing", "evaluating")
+_STT_DISPATCH_LOCK_SCOPE = "voiceqa-stt-dispatch-global"
 
 
 def _timeout_for_status(status: str) -> timedelta:
@@ -62,6 +63,92 @@ def _stage_has_started(session, rec: Recording) -> bool:
             is not None
         )
     return True
+
+
+def _available_stt_slots(active: int) -> int:
+    return max(0, max(1, int(settings.STT_MAX_IN_FLIGHT)) - active)
+
+
+@app.task(name="voiceqa.batch.dispatch_stt_waiting")
+def dispatch_stt_waiting() -> int:
+    """Reserve only free remote slots and dispatch that many waiting recordings."""
+    from worker.tasks.pipeline import transcribe
+
+    now = datetime.now(UTC)
+    reserved: list[tuple[str, str | None, str | None]] = []
+    with SessionLocal() as session:
+        session.execute(
+            text(
+                "SELECT pg_advisory_xact_lock("
+                "hashtextextended(CAST(:scope AS text), 0))"
+            ),
+            {"scope": _STT_DISPATCH_LOCK_SCOPE},
+        )
+        active = session.execute(
+            select(func.count())
+            .select_from(Recording)
+            .where(
+                Recording.status == "transcribing",
+                or_(
+                    Recording.stt_started_at.is_not(None),
+                    Recording.stt_operation_name.is_not(None),
+                ),
+            )
+        ).scalar_one()
+        available = _available_stt_slots(active)
+        if available == 0:
+            return 0
+
+        rows = (
+            session.execute(
+                select(Recording)
+                .join(UploadBatch, Recording.batch_id == UploadBatch.id)
+                .where(
+                    UploadBatch.status == "processing",
+                    Recording.status == "transcribing",
+                    Recording.stt_started_at.is_(None),
+                    Recording.stt_operation_name.is_(None),
+                )
+                .order_by(Recording.updated_at, Recording.created_at)
+                .limit(available)
+                .with_for_update(skip_locked=True)
+            )
+            .scalars()
+            .all()
+        )
+        for rec in rows:
+            rec.stt_started_at = now
+            rec.updated_at = now
+            reserved.append(
+                (
+                    str(rec.id),
+                    rec.rerun_asr_provider,
+                    rec.rerun_asr_model,
+                )
+            )
+        session.commit()
+
+    queued = 0
+    for recording_id, asr_provider, asr_model in reserved:
+        try:
+            transcribe.delay(recording_id, asr_provider, asr_model)
+            queued += 1
+        except Exception:
+            logger.exception("failed to publish reserved STT task {}", recording_id)
+            with SessionLocal() as session:
+                rec = session.get(Recording, uuid.UUID(recording_id))
+                if (
+                    rec is not None
+                    and rec.status == "transcribing"
+                    and rec.stt_operation_name is None
+                    and rec.stt_started_at == now
+                ):
+                    rec.stt_started_at = None
+                    rec.updated_at = datetime.now(UTC)
+                    session.commit()
+    if queued:
+        logger.info("dispatched {} waiting STT recording(s)", queued)
+    return queued
 
 
 @app.task(name="voiceqa.batch.update_progress")
