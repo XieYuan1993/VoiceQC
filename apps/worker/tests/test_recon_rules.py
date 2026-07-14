@@ -177,7 +177,7 @@ def test_call_may_precede_order_within_configured_window() -> None:
     assert len(result.matched) == 1
 
 
-def test_call_outside_configured_window_is_rejected() -> None:
+def test_call_outside_configured_window_is_scored_by_default() -> None:
     transaction = TxnView(
         id="T-window",
         anchor=hk("16:30"),
@@ -216,7 +216,22 @@ def test_call_outside_configured_window_is_rejected() -> None:
         broker_extensions={"AE012": {"2012"}},
     )
 
-    assert result.matched == []
+    assert len(result.matched) == 1
+    assert result.matched[0].breakdown["components"]["time"] == 0.2
+
+    legacy_result = run_match(
+        [transaction],
+        [instruction],
+        [],
+        params=Params(
+            before_hours=6,
+            after_minutes=15,
+            enforce_candidate_time_window=True,
+        ),
+        alias_map={},
+        broker_extensions={"AE012": {"2012"}},
+    )
+    assert legacy_result.matched == []
 
 
 def test_us_ticker_uses_extended_before_window() -> None:

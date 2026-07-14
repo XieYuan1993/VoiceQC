@@ -489,7 +489,7 @@ def test_extension_mapping_overrides_stale_recording_broker_name():
     assert not [c for c in pair.breakdown["conflict_fields"] if c["field"] == "broker"]
 
 
-def test_unmatched_reasons_distinguish_day_window_and_content():
+def test_unmatched_reason_defaults_to_score_only_and_can_restore_broker_diagnostics():
     transactions = [
         txn("NO-DAY", "10:00", "AE012", "1", "A", "700", "buy", 1, 1),
         txn("NO-WINDOW", "10:00", "AE015", "2", "B", "700", "buy", 1, 1),
@@ -509,11 +509,27 @@ def test_unmatched_reasons_distinguish_day_window_and_content():
         recording_contexts=recordings,
     )
     assert result.unmatched_reasons == {
+        "NO-DAY": "no_matching_recording",
+        "NO-WINDOW": "no_matching_recording",
+        "NO-MATCH": "no_matching_recording",
+    }
+    assert result.candidates["NO-DAY"][0]["recording_id"] == "R-NEAR"
+
+    legacy_result = run_match(
+        transactions,
+        [],
+        [],
+        params=Params(before_hours=2, classify_unmatched_by_broker=True),
+        alias_map={},
+        broker_extensions=BROKER_EXTENSIONS,
+        recording_contexts=recordings,
+    )
+    assert legacy_result.unmatched_reasons == {
         "NO-DAY": "no_broker_recordings_day",
         "NO-WINDOW": "no_recordings_in_window",
         "NO-MATCH": "no_matching_recording",
     }
-    assert result.candidates["NO-MATCH"][0]["recording_id"] == "R-NEAR"
+    assert legacy_result.candidates["NO-MATCH"][0]["recording_id"] == "R-NEAR"
 
 
 def test_transaction_filters_use_imported_order_metadata():

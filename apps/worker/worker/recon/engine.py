@@ -94,6 +94,10 @@ class Params:
     phone_only: bool = True
     quantity_tolerance: float = 0.10
     price_tolerance: float = 0.02
+    # Temporarily disabled: time and broker availability are scoring evidence,
+    # not candidate eligibility gates.
+    enforce_candidate_time_window: bool = False
+    classify_unmatched_by_broker: bool = False
 
 
 @dataclass
@@ -526,14 +530,14 @@ def run_match(
         in_scope = list(txns)
     excluded = len(txns) - len(in_scope)
 
-    # Score every in-window instruction for diagnostics, then apply the
-    # compliance shortlist. Hard-rejected pairs remain visible to reviewers.
+    # Score every loaded instruction, then apply the compliance shortlist.
+    # The legacy time-window gate remains available behind a disabled flag.
     pairs: list[tuple[float, TxnView, InstrView, dict, bool, int]] = []
     diagnostic_pairs: list[tuple[float, TxnView, InstrView, dict]] = []
     for txn in in_scope:
         exts = _txn_extensions(txn, broker_extensions)
         for instr in instrs:
-            if not _in_window(txn, instr, params):
+            if params.enforce_candidate_time_window and not _in_window(txn, instr, params):
                 continue
             broker_name_match = _broker_name_matches(txn, instr)
             ext_match = bool(exts and instr.broker_ext in exts)
@@ -641,28 +645,33 @@ def run_match(
     ]
     for tid in txn_no_recording:
         txn = txn_by_id[tid]
-        broker_calls = [
-            rec
-            for rec in contexts
-            if _broker_matches(txn, rec.broker_name, rec.broker_ext, broker_extensions)
-        ]
-        txn_day = txn.anchor.astimezone(HK).date() if txn.anchor else None
-        day_calls = [
-            rec
-            for rec in broker_calls
-            if txn_day is None
-            or (
-                rec.call_started_at is not None
-                and rec.call_started_at.astimezone(HK).date() == txn_day
-            )
-        ]
-        window_calls = [rec for rec in broker_calls if _recording_in_window(txn, rec, params)]
-        if not day_calls:
-            unmatched_reasons[tid] = "no_broker_recordings_day"
-        elif not window_calls:
-            unmatched_reasons[tid] = "no_recordings_in_window"
+        if params.classify_unmatched_by_broker:
+            broker_calls = [
+                rec
+                for rec in contexts
+                if _broker_matches(txn, rec.broker_name, rec.broker_ext, broker_extensions)
+            ]
+            txn_day = txn.anchor.astimezone(HK).date() if txn.anchor else None
+            day_calls = [
+                rec
+                for rec in broker_calls
+                if txn_day is None
+                or (
+                    rec.call_started_at is not None
+                    and rec.call_started_at.astimezone(HK).date() == txn_day
+                )
+            ]
+            window_calls = [rec for rec in broker_calls if _recording_in_window(txn, rec, params)]
+            if not day_calls:
+                unmatched_reasons[tid] = "no_broker_recordings_day"
+            elif not window_calls:
+                unmatched_reasons[tid] = "no_recordings_in_window"
+            else:
+                unmatched_reasons[tid] = "no_matching_recording"
+            fallback_calls = window_calls
         else:
             unmatched_reasons[tid] = "no_matching_recording"
+            fallback_calls = contexts
 
         top = sorted(by_txn.get(tid, []), key=lambda x: x[0], reverse=True)[:3]
         candidates[tid] = [
@@ -687,7 +696,7 @@ def run_match(
         ]
         existing_recordings = {candidate["recording_id"] for candidate in candidates[tid]}
         nearest_calls = sorted(
-            (rec for rec in window_calls if rec.id not in existing_recordings),
+            (rec for rec in fallback_calls if rec.id not in existing_recordings),
             key=lambda rec: (
                 abs(((txn.anchor or rec.call_started_at) - rec.call_started_at).total_seconds())
                 if rec.call_started_at
