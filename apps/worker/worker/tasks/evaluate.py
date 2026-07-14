@@ -42,6 +42,11 @@ from worker.llm import factory
 from worker.llm.embeddings import Embedder
 from worker.settings import settings
 from worker.tasks.pipeline import _fail
+from worker.trade_normalization import (
+    MAX_SECURITY_CANDIDATES,
+    normalize_stock_code,
+    normalize_trade_item,
+)
 
 SIDES = {"buy", "sell", "amend", "cancel", "unknown"}
 PRICE_TYPES = {"market", "limit", "unknown"}
@@ -53,7 +58,7 @@ KB_TOP_K = 6  # KB chunks retrieved per call for answer-correctness
 KB_QUERY_CHARS = 2000  # transcript prefix used as the retrieval query (embed token cap)
 TRADE_CHUNK_CHARS = 12_000
 TRADE_CHUNK_OVERLAP_LINES = 2
-TRADE_CANDIDATES_MAX = 100
+TRADE_CANDIDATES_MAX = MAX_SECURITY_CANDIDATES
 
 
 @lru_cache(maxsize=1)
@@ -344,7 +349,10 @@ alphabetic tickers such as NVDA, RKLB, BRK.B, or BF-B.
 """
 
 
-def _merge_trade_outputs(outputs: list[dict[str, Any]]) -> dict[str, Any]:
+def _merge_trade_outputs(
+    outputs: list[dict[str, Any]],
+    candidate_securities: list[tuple[str, str | None]] | None = None,
+) -> dict[str, Any]:
     caller: dict[str, Any] = {"name": None, "account": None}
     instructions: list[dict[str, Any]] = []
     seen: set[tuple[Any, ...]] = set()
@@ -356,6 +364,7 @@ def _merge_trade_outputs(outputs: list[dict[str, Any]]) -> dict[str, Any]:
         for item in output.get("trade_instructions") or []:
             if not isinstance(item, dict):
                 continue
+            item = normalize_trade_item(item, candidate_securities or [])
             time_ms = item.get("time_in_call_ms")
             time_bucket = round(time_ms / 5000) if isinstance(time_ms, int | float) else None
             key = (
@@ -553,14 +562,7 @@ def build_response_schema(
 
 
 def _normalize_stock_code(code: str | None) -> str | None:
-    if not code:
-        return None
-    text = str(code).strip().upper()
-    if any("A" <= ch <= "Z" for ch in text):
-        ticker = "".join(ch for ch in text if ch.isalnum() or ch in ".-")
-        return ticker or None
-    stripped = "".join(ch for ch in text if ch.isdigit()).lstrip("0")
-    return stripped or None
+    return normalize_stock_code(code)
 
 
 def _alias_map(terms: list[IndustryTerm]) -> dict[str, str]:
@@ -825,7 +827,7 @@ def evaluate(self, recording_id: str) -> None:
             trade_outputs.append(trade_output)
             in_tok += trade_in_tok
             out_tok += trade_out_tok
-        trade_parsed = _merge_trade_outputs(trade_outputs)
+        trade_parsed = _merge_trade_outputs(trade_outputs, candidates if trade_module else [])
     except Exception as e:
         transient = any(
             marker in str(e)

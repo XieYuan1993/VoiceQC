@@ -9,6 +9,8 @@ work is never redone (keyed by transaction/recording identity).
 from __future__ import annotations
 
 import uuid
+from bisect import bisect_left, bisect_right
+from collections import Counter
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
@@ -31,6 +33,11 @@ from worker.celery_app import app
 from worker.db import SessionLocal
 from worker.recon import engine
 from worker.recon.engine import InstrView, Params, TxnView
+from worker.trade_normalization import (
+    MAX_SECURITY_CANDIDATES,
+    infer_price_type,
+    recover_stock_code,
+)
 
 HK = ZoneInfo("Asia/Hong_Kong")
 PRESET_STATUSES = {"待報\uff08保價\uff09", "待報\uff08條件單\uff09"}
@@ -237,7 +244,7 @@ def _date_range_from_snapshot(trade_date: date, snapshot: dict | None) -> tuple[
 
 def _load_views(
     session, trade_date_from, trade_date_to=None, transaction_filters: dict | None = None
-) -> tuple[list[TxnView], list[InstrView], list[str]]:
+) -> tuple[list[TxnView], list[InstrView], list[str], int]:
     trade_date_to = trade_date_to or trade_date_from
     txn_rows = list(
         session.execute(
@@ -266,26 +273,38 @@ def _load_views(
     # Latest completed evaluation per recording carries the instructions.
     latest_eval_ids = {}
     if recordings:
-        rows = session.execute(
-            select(Evaluation.recording_id, func.max(Evaluation.run_seq))
+        latest_runs = (
+            select(Evaluation.recording_id, func.max(Evaluation.run_seq).label("run_seq"))
             .where(
                 Evaluation.recording_id.in_([r.id for r in recordings]),
                 Evaluation.status == "completed",
             )
             .group_by(Evaluation.recording_id)
+            .subquery()
+        )
+        rows = session.execute(
+            select(Evaluation.recording_id, Evaluation.id).join(
+                latest_runs,
+                (Evaluation.recording_id == latest_runs.c.recording_id)
+                & (Evaluation.run_seq == latest_runs.c.run_seq),
+            )
         ).all()
-        for rec_id, max_seq in rows:
-            ev_id = session.execute(
-                select(Evaluation.id).where(
-                    Evaluation.recording_id == rec_id,
-                    Evaluation.run_seq == max_seq,
-                )
-            ).scalar_one()
-            latest_eval_ids[rec_id] = ev_id
+        latest_eval_ids = dict(rows)
 
     rec_by_id = {r.id: r for r in recordings}
     instrs: list[InstrView] = []
     recordings_with_instr: set[uuid.UUID] = set()
+    recovered_stock_count = 0
+    candidates_by_recording: dict[uuid.UUID, list[tuple[str, str | None]]] = {}
+    candidate_rows = sorted(
+        (
+            (anchor, txn.stock_code, txn.stock_name)
+            for txn in txn_rows
+            if txn.stock_code and (anchor := txn.ordered_at or txn.executed_at) is not None
+        ),
+        key=lambda row: row[0],
+    )
+    candidate_times = [row[0] for row in candidate_rows]
     if latest_eval_ids:
         rows = (
             session.execute(
@@ -300,6 +319,28 @@ def _load_views(
             rec = rec_by_id.get(ti.recording_id)
             if rec is None:
                 continue
+            candidates = candidates_by_recording.get(rec.id)
+            if candidates is None:
+                low = rec.call_started_at - timedelta(minutes=15)
+                high = rec.call_started_at + timedelta(hours=6)
+                left = bisect_left(candidate_times, low)
+                right = bisect_right(candidate_times, high)
+                counts = Counter((code, name) for _at, code, name in candidate_rows[left:right])
+                candidates = [
+                    security
+                    for security, _count in counts.most_common(MAX_SECURITY_CANDIDATES)
+                ]
+                candidates_by_recording[rec.id] = candidates
+            stock_code = ti.stock_code
+            if stock_code is None:
+                stock_code = recover_stock_code(
+                    ti.evidence_quote,
+                    candidates,
+                    quantity=ti.quantity,
+                    price=ti.price,
+                )
+                if stock_code is not None:
+                    recovered_stock_count += 1
             recordings_with_instr.add(rec.id)
             instrs.append(
                 InstrView(
@@ -311,12 +352,12 @@ def _load_views(
                     else None,
                     broker_ext=rec.broker_ext,
                     broker_name=rec.broker_name,
-                    stock_code=ti.stock_code,
+                    stock_code=stock_code,
                     stock_name_raw=ti.stock_name_raw,
                     side=ti.side,
                     quantity=float(ti.quantity) if ti.quantity is not None else None,
                     price=float(ti.price) if ti.price is not None else None,
-                    price_type=ti.price_type,
+                    price_type=infer_price_type(ti.price_type, ti.evidence_quote),
                     client_name_raw=ti.client_name_raw or rec.client_name,
                     client_account_raw=ti.client_account_raw or rec.client_account,
                 )
@@ -327,7 +368,7 @@ def _load_views(
         for r in recordings
         if r.id in latest_eval_ids and r.id not in recordings_with_instr
     ]
-    return txns, instrs, zero_instr
+    return txns, instrs, zero_instr, recovered_stock_count
 
 
 def _carry_forward_map(session, run: ReconRun) -> dict[tuple, ReconItem]:
@@ -384,7 +425,7 @@ def run(self, run_id: str) -> None:
                 recon_run.trade_date,
                 recon_run.params_snapshot,
             )
-            txns, instrs, zero_instr = _load_views(
+            txns, instrs, zero_instr, recovered_stock_count = _load_views(
                 session,
                 trade_date_from,
                 trade_date_to,
@@ -483,7 +524,11 @@ def run(self, run_id: str) -> None:
                         )
                     )
 
-            recon_run.stats = {**result.stats, "decisions_carried_forward": carried_count}
+            recon_run.stats = {
+                **result.stats,
+                "instructions_stock_recovered": recovered_stock_count,
+                "decisions_carried_forward": carried_count,
+            }
             recon_run.status = "completed"
             recon_run.completed_at = datetime.now(UTC)
             session.commit()

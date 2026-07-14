@@ -26,17 +26,31 @@ def _strip_json_fences(s: str) -> str:
 
 
 def _schema_hint(schema: dict[str, Any]) -> str:
-    """Turn the response_schema into a concise system-prompt instruction."""
-    required = schema.get("required", [])
-    props = schema.get("properties", {})
-    lines = ["Respond ONLY with a valid JSON object matching this schema. No extra text."]
-    lines.append(f"Required top-level keys: {', '.join(required)}")
-    for key, val in list(props.items())[:10]:  # brief hint, not full schema
-        t = val.get("type", "any")
-        lines.append(f"  {key}: {t}")
-    if len(props) > 10:
-        lines.append(f"  ... and {len(props) - 10} more keys.")
-    return "\n".join(lines)
+    """Turn the response schema into a compact, complete nested contract."""
+
+    def describe(node: dict[str, Any]) -> str:
+        node_type = node.get("type", "any")
+        nullable = "|null" if node.get("nullable") else ""
+        enum = node.get("enum")
+        if enum:
+            values = ",".join(json.dumps(value, ensure_ascii=False) for value in enum)
+            return f"enum({values}){nullable}"
+        if node_type == "array":
+            return f"array<{describe(node.get('items') or {})}>{nullable}"
+        if node_type == "object":
+            required = set(node.get("required") or [])
+            fields = []
+            for key, child in (node.get("properties") or {}).items():
+                suffix = "!" if key in required else "?"
+                fields.append(f"{key}{suffix}:{describe(child)}")
+            return "object{" + ",".join(fields) + "}" + nullable
+        return f"{node_type}{nullable}"
+
+    return (
+        "Respond ONLY with one valid JSON object matching this complete schema. "
+        "Keys marked ! are required; keys marked ? are optional. Do not rename keys.\n"
+        f"Schema: {describe(schema)}"
+    )
 
 
 class DashScopeLLM:
