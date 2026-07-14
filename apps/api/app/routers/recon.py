@@ -230,6 +230,7 @@ async def list_items(
         default=None, pattern="^(matched|txn_no_recording|recording_no_txn)$"
     ),
     match_status: str | None = None,
+    severity: str | None = Query(default=None, pattern="^(info|suspicious)$"),
     unmatched_reason: str | None = Query(
         default=None,
         pattern="^(no_broker_recordings_day|no_recordings_in_window|no_matching_recording)$",
@@ -245,6 +246,8 @@ async def list_items(
         stmt = stmt.where(ReconItem.item_type == bucket)
     if match_status:
         stmt = stmt.where(ReconItem.match_status == match_status)
+    if severity:
+        stmt = stmt.where(ReconItem.severity == severity)
     if unmatched_reason:
         stmt = stmt.where(ReconItem.score_breakdown["unmatched_reason"].astext == unmatched_reason)
     total = (await session.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()

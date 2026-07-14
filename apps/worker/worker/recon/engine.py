@@ -724,6 +724,8 @@ def run_match(
                 }
             )
 
+    suspicious_ids = set(suspicious)
+    suspicious_recordings = {instr.recording_id for instr in instrs if instr.id in suspicious_ids}
     stats = {
         "txns_total": len(txns),
         "txns_excluded_channel": excluded,
@@ -731,7 +733,8 @@ def run_match(
         "matched_auto": sum(1 for m in matched if m.status == "auto_matched"),
         "matched_needs_review": sum(1 for m in matched if m.status == "needs_review"),
         "txn_no_recording": len(txn_no_recording),
-        "recording_no_txn_suspicious": len(suspicious),
+        "recording_no_txn_suspicious": len(suspicious_recordings),
+        "recording_no_txn_suspicious_instructions": len(suspicious),
         "recording_no_txn_info": len(zero_instr_recordings),
     }
     return EngineResult(

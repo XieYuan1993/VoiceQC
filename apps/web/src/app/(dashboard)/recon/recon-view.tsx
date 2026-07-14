@@ -127,11 +127,13 @@ function RunStatsChips({ stats }: { stats: ReconRun["stats"] }) {
 function StatTile({
   label,
   value,
+  detail,
   tone,
   onClick,
 }: {
   label: string;
   value: number;
+  detail?: string;
   tone?: string;
   onClick?: () => void;
 }) {
@@ -139,6 +141,7 @@ function StatTile({
     <>
       <p className={cn("text-2xl font-semibold tabular-nums", tone)}>{value}</p>
       <p className="mt-0.5 text-xs text-muted-foreground">{label}</p>
+      {detail && <p className="mt-1 text-xs text-muted-foreground">{detail}</p>}
     </>
   );
   if (onClick) {
@@ -168,6 +171,7 @@ export function ReconView({ canManage }: { canManage: boolean }) {
   const [tab, setTab] = React.useState<Bucket>("matched");
   const [page, setPage] = React.useState(1);
   const [matchStatus, setMatchStatus] = React.useState("");
+  const [severity, setSeverity] = React.useState("");
   const [unmatchedReason, setUnmatchedReason] = React.useState("");
   const [items, setItems] = React.useState<ReconItemList | null>(null);
   const [itemsError, setItemsError] = React.useState<string | null>(null);
@@ -200,10 +204,13 @@ export function ReconView({ canManage }: { canManage: boolean }) {
 
   const selected = runs?.find((r) => r.id === selectedId) ?? null;
 
-  const goBucket = React.useCallback((b: Bucket, status = "") => {
+  const goBucket = React.useCallback((b: Bucket, status = "", itemSeverity = "") => {
     setTab(b);
     setMatchStatus(status);
+    setSeverity(itemSeverity);
+    setUnmatchedReason("");
     setPage(1);
+    setDrawerId(null);
   }, []);
 
   // When a run is opened, jump to the first bucket that has findings — so the
@@ -237,7 +244,8 @@ export function ReconView({ canManage }: { canManage: boolean }) {
     setMatchStatus("");
     setUnmatchedReason("");
     setDrawerId(null);
-  }, [selectedId, tab]);
+    setSeverity("");
+  }, [selectedId]);
 
   const selectedStatus = selected?.status;
   const loadItems = React.useCallback(async () => {
@@ -249,6 +257,7 @@ export function ReconView({ canManage }: { canManage: boolean }) {
           query: {
             bucket: tab,
             match_status: matchStatus || undefined,
+            severity: severity || undefined,
             unmatched_reason: unmatchedReason || undefined,
             page,
             page_size: ITEMS_PAGE_SIZE,
@@ -260,7 +269,7 @@ export function ReconView({ canManage }: { canManage: boolean }) {
     } catch (e) {
       setItemsError(getApiErrorMessage(e));
     }
-  }, [selectedId, tab, page, matchStatus, unmatchedReason]);
+  }, [selectedId, tab, page, matchStatus, severity, unmatchedReason]);
 
   React.useEffect(() => {
     setItems(null);
@@ -569,13 +578,18 @@ export function ReconView({ canManage }: { canManage: boolean }) {
               <StatTile
                 label="Recording w/o txn (suspicious)"
                 value={statNum(stats, "recording_no_txn_suspicious")}
+                detail={
+                  statNum(stats, "recording_no_txn_suspicious_instructions") > 0
+                    ? `${statNum(stats, "recording_no_txn_suspicious_instructions")} unmatched instructions`
+                    : undefined
+                }
                 tone="text-orange-600 dark:text-orange-400"
-                onClick={() => goBucket("recording_no_txn")}
+                onClick={() => goBucket("recording_no_txn", "", "suspicious")}
               />
               <StatTile
                 label="Recording w/o txn (info)"
                 value={statNum(stats, "recording_no_txn_info")}
-                onClick={() => goBucket("recording_no_txn")}
+                onClick={() => goBucket("recording_no_txn", "", "info")}
               />
               <StatTile
                 label="Decisions carried forward"
@@ -601,7 +615,7 @@ export function ReconView({ canManage }: { canManage: boolean }) {
                       type="button"
                       role="tab"
                       aria-selected={active}
-                      onClick={() => setTab(t.key)}
+                      onClick={() => goBucket(t.key)}
                       className={cn(
                         "-mb-px border-b-2 px-4 py-3 text-sm font-medium transition-colors",
                         active
@@ -661,6 +675,22 @@ export function ReconView({ canManage }: { canManage: boolean }) {
                       {label}
                     </option>
                   ))}
+                </Select>
+              )}
+              {tab === "recording_no_txn" && (
+                <Select
+                  value={severity}
+                  onChange={(e) => {
+                    setSeverity(e.target.value);
+                    setPage(1);
+                  }}
+                  wrapperClassName="w-44 shrink-0 py-2"
+                  className="h-8"
+                  aria-label="Filter by severity"
+                >
+                  <option value="">All severities</option>
+                  <option value="suspicious">Suspicious</option>
+                  <option value="info">Info</option>
                 </Select>
               )}
             </div>

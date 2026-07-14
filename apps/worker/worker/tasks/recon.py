@@ -291,6 +291,7 @@ def _load_views(
         .scalars()
         .all()
     )
+    recordings = _deduplicate_recordings_by_audio(recordings)
 
     # Latest completed evaluation per recording carries the instructions.
     latest_eval_ids = {}
@@ -402,6 +403,29 @@ def _load_views(
         for rec in recordings
     ]
     return txns, instrs, zero_instr, recovered_stock_count, recording_contexts
+
+
+def _deduplicate_recordings_by_audio(recordings):
+    """Keep the most recently processed copy of audio uploaded in multiple batches."""
+    selected = {}
+    for recording in recordings:
+        key = recording.sha256 or str(recording.id)
+        current = selected.get(key)
+        recording_rank = (
+            recording.updated_at or recording.created_at or datetime.min.replace(tzinfo=UTC),
+            str(recording.id),
+        )
+        current_rank = (
+            (
+                current.updated_at or current.created_at or datetime.min.replace(tzinfo=UTC),
+                str(current.id),
+            )
+            if current is not None
+            else None
+        )
+        if current_rank is None or recording_rank > current_rank:
+            selected[key] = recording
+    return list(selected.values())
 
 
 def _carry_forward_map(session, run: ReconRun) -> dict[tuple, ReconItem]:

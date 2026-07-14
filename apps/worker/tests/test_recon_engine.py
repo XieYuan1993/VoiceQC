@@ -15,11 +15,12 @@ one zero-instruction recording. Known truth (mocks/README.md):
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 from worker.recon.engine import InstrView, Params, RecordingView, TxnView, fold, run_match
-from worker.tasks.recon import _passes_transaction_filters
+from worker.tasks.recon import _deduplicate_recordings_by_audio, _passes_transaction_filters
 
 HK = ZoneInfo("Asia/Hong_Kong")
 D = "2026-06-11"
@@ -274,6 +275,48 @@ def test_multi_trade_call_and_split_fill():
     assert by_txn["T3"].instr_id != by_txn["T4"].instr_id
     # Split fill: both executions consume the SAME instruction.
     assert by_txn["T5"].instr_id == by_txn["T6"].instr_id == "I4"
+
+
+def test_suspicious_stats_count_recordings_and_instructions_separately():
+    instructions = [
+        instr("S1", "R-SAME", "10:00", "2012", "700", None, "buy", 100, 10, "limit"),
+        instr("S2", "R-SAME", "10:01", "2012", "5", None, "sell", 200, 20, "limit"),
+    ]
+    result = run_match(
+        [],
+        instructions,
+        [],
+        params=Params(),
+        alias_map={},
+        broker_extensions=BROKER_EXTENSIONS,
+    )
+    assert result.stats["recording_no_txn_suspicious"] == 1
+    assert result.stats["recording_no_txn_suspicious_instructions"] == 2
+
+
+def test_duplicate_audio_keeps_most_recently_processed_recording():
+    older = SimpleNamespace(
+        id="older",
+        sha256="same-audio",
+        created_at=datetime(2026, 5, 13, 1, tzinfo=UTC),
+        updated_at=datetime(2026, 5, 13, 2, tzinfo=UTC),
+    )
+    newer = SimpleNamespace(
+        id="newer",
+        sha256="same-audio",
+        created_at=datetime(2026, 5, 13, 1, tzinfo=UTC),
+        updated_at=datetime(2026, 5, 13, 3, tzinfo=UTC),
+    )
+    distinct = SimpleNamespace(
+        id="distinct",
+        sha256="other-audio",
+        created_at=datetime(2026, 5, 13, 1, tzinfo=UTC),
+        updated_at=datetime(2026, 5, 13, 1, tzinfo=UTC),
+    )
+
+    selected = _deduplicate_recordings_by_audio([older, distinct, newer])
+
+    assert {recording.id for recording in selected} == {"newer", "distinct"}
 
 
 def test_garbled_code_rescued_by_glossary_name():

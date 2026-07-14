@@ -5787,6 +5787,7 @@ export interface operations {
             query?: {
                 bucket?: string | null;
                 match_status?: string | null;
+                severity?: string | null;
                 unmatched_reason?: string | null;
                 page?: number;
                 page_size?: number;
