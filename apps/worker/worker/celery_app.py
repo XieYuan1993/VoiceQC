@@ -36,6 +36,7 @@ app = Celery(
         "worker.tasks.txn",
         "worker.tasks.recon",
         "worker.tasks.maintenance",
+        "worker.tasks.monitoring",
     ],
 )
 
@@ -72,6 +73,10 @@ app.conf.update(
         },
         "txn-scheduled-pulls": {
             "task": "voiceqa.txn.scheduled_pulls",
+            "schedule": 600.0,
+        },
+        "monitor-evaluating-cases": {
+            "task": "voiceqa.monitor.evaluating_cases",
             "schedule": 600.0,
         },
         "apply-retention": {

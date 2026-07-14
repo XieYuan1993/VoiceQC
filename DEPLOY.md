@@ -88,6 +88,8 @@ boot** if any of `NEXTAUTH_SECRET`, `INTERNAL_API_SECRET`, or
 | `ASR_AUDIO_PROXY_BASE_URL` | worker | recommended for Tencent ASR; set to the public API base URL so Tencent downloads audio through VoiceQA instead of Google Storage directly |
 | `RECORDING_CONVERT_TIMEOUT_SECONDS` / `RECORDING_STT_TIMEOUT_SECONDS` / `RECORDING_EVAL_TIMEOUT_SECONDS` | worker | optional pipeline timeout thresholds; defaults are 1800 / 1800 / 3600 seconds |
 | `RECORDING_RESUME_STALE_SECONDS` / `RECORDING_RESUME_MAX_ATTEMPTS` | worker | optional stale-task recovery controls; defaults are 300 seconds and 1 re-enqueue before failing |
+| `FEISHU_WEBHOOK_URL` / `FEISHU_WEBHOOK_SECRET` | singleton beat worker | optional Feishu custom-bot notifications for stuck `evaluating` recordings; set the secret only when the bot has signature verification enabled |
+| `EVALUATING_MONITOR_STALE_SECONDS` / `EVALUATING_MONITOR_NOTIFY_OK` | singleton beat worker | evaluation monitor warning threshold and whether to send OK heartbeats; defaults are 1200 seconds and `false` |
 | `WORKER_MAX_TASKS_PER_CHILD` / `WORKER_MAX_MEMORY_PER_CHILD` | worker | optional Celery child recycling controls; useful for STT memory pressure (`max-memory` is in KiB) |
 | `SMTP_HOST/PORT/USER/PASS`, `MAIL_FROM` | api | real relay |
 

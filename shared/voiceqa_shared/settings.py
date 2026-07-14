@@ -134,6 +134,13 @@ class SharedSettings(BaseSettings):
     RECORDING_RESUME_MAX_ATTEMPTS: int = 1
     STT_MAX_IN_FLIGHT: int = 3
 
+    # Feishu/Lark custom bot notifications for pipeline monitoring. Configure
+    # only on the singleton beat worker.
+    FEISHU_WEBHOOK_URL: str = ""
+    FEISHU_WEBHOOK_SECRET: SecretStr = SecretStr("")
+    EVALUATING_MONITOR_STALE_SECONDS: int = 20 * 60
+    EVALUATING_MONITOR_NOTIFY_OK: bool = False
+
     LOG_LEVEL: str = "INFO"
 
     @model_validator(mode="after")

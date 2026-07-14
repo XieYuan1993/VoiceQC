@@ -130,6 +130,14 @@ services:
         value: ap-guangzhou
       - key: ASR_AUDIO_PROXY_BASE_URL
         sync: false
+      - key: FEISHU_WEBHOOK_URL
+        sync: false
+      - key: FEISHU_WEBHOOK_SECRET
+        sync: false
+      - key: EVALUATING_MONITOR_STALE_SECONDS
+        value: "1200"
+      - key: EVALUATING_MONITOR_NOTIFY_OK
+        value: "false"
 
   - type: worker
     name: voiceqa-worker-stt
