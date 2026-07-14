@@ -562,18 +562,21 @@ def run_match(
             )
             amend_review = bool(amend_evidence.get("action_match")) and amend_evidence_count >= 3
             force_review = stock_review or amend_review or broker_conflict
-            eligible = (not broker_conflict and not hard_conflicts) or stock_review or amend_review
+            # Broker identity is soft evidence: transfers and assisted orders
+            # legitimately cross broker lines. Keep the score penalty, but let
+            # sufficiently strong content surface for mandatory review.
+            eligible = not hard_conflicts or stock_review or amend_review
             if not eligible:
                 continue
             if stock_review:
                 breakdown["capped"] = "stock conflict; surfaced because 4+ other fields agree"
-            elif amend_review and broker_conflict:
-                breakdown["capped"] = "amend/replace evidence agrees but broker conflicts"
+            elif broker_conflict:
+                breakdown["capped"] = "broker mismatch; score penalty applied and review required"
             if amend_review:
                 breakdown["priority"] = "amend_replace"
             pairs.append(
                 (
-                    max(score, params.needs_review) if force_review else score,
+                    max(score, params.needs_review) if stock_review or amend_review else score,
                     txn,
                     instr,
                     breakdown,

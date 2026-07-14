@@ -68,6 +68,13 @@ function conflicts(raw: unknown): Conflict[] {
   );
 }
 
+function conflictLabel(conflict: Conflict): string {
+  if (conflict.field === "broker") {
+    return `broker: transaction ${String(conflict.transaction ?? "unknown")} vs recording ${String(conflict.recording ?? "unknown")}`;
+  }
+  return `${conflict.field}: ${String(conflict.transaction ?? "unknown")} vs ${String(conflict.recording ?? "unknown")}`;
+}
+
 function numRecord(v: unknown): Record<string, number> | null {
   if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
   const out: Record<string, number> = {};
@@ -658,7 +665,7 @@ export function ReviewDrawer({
             <p className="font-medium">Conflicting fields</p>
             {breakdown.conflicts.map((conflict) => (
               <p key={conflict.field} className="mt-1 font-mono text-xs">
-                {conflict.field}: {String(conflict.transaction ?? "unknown")} vs {String(conflict.recording ?? "unknown")}
+                {conflictLabel(conflict)}
               </p>
             ))}
           </div>
@@ -709,7 +716,7 @@ export function ReviewDrawer({
                       </span>
                       {c.conflicts?.map((conflict) => (
                         <span key={conflict.field} className="block text-xs text-destructive">
-                          {conflict.field}: {String(conflict.transaction ?? "unknown")} vs {String(conflict.recording ?? "unknown")}
+                          {conflictLabel(conflict)}
                         </span>
                       ))}
                     </div>

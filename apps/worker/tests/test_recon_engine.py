@@ -380,6 +380,68 @@ def test_replace_amend_broker_conflict_is_review_only():
     assert "broker" in pair.breakdown["capped"]
 
 
+def test_broker_conflict_is_penalized_review_evidence_not_a_hard_filter():
+    transaction = TxnView(
+        id="BROKER-SOFT",
+        anchor=hk("13:18"),
+        broker_code=None,
+        broker_name="Chanel Leung",
+        client_account="39984",
+        client_name="Client",
+        stock_code="386",
+        stock_name=None,
+        side="sell",
+        quantity=20000,
+        price=4.67,
+        channel="phone",
+    )
+    instruction = InstrView(
+        id="BROKER-SOFT-INSTR",
+        recording_id="R-BROKER-SOFT",
+        call_started_at=hk("13:16"),
+        call_duration_seconds=180,
+        broker_ext=None,
+        broker_name="Enson Chan",
+        stock_code="386",
+        stock_name_raw="386",
+        side="sell",
+        quantity=20000,
+        price=4.67,
+        price_type="limit",
+        client_name_raw="Client",
+        client_account_raw="39984",
+    )
+
+    result = run_match(
+        [transaction],
+        [instruction],
+        [],
+        params=Params(),
+        alias_map={},
+        broker_extensions={},
+    )
+
+    pair = result.matched[0]
+    assert pair.status == "needs_review"
+    assert pair.score < 1
+    assert pair.breakdown["capped"] == (
+        "broker mismatch; score penalty applied and review required"
+    )
+    assert {conflict["field"] for conflict in pair.breakdown["conflict_fields"]} == {"broker"}
+
+    high_threshold_result = run_match(
+        [transaction],
+        [instruction],
+        [],
+        params=Params(auto_match=0.95, needs_review=0.9),
+        alias_map={},
+        broker_extensions={},
+    )
+    assert high_threshold_result.matched == []
+    assert high_threshold_result.txn_no_recording == ["BROKER-SOFT"]
+    assert high_threshold_result.candidates["BROKER-SOFT"][0]["score"] < 0.9
+
+
 def test_extension_mapping_overrides_stale_recording_broker_name():
     transaction = TxnView(
         id="EXTENSION",

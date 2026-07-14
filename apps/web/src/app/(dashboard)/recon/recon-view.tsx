@@ -77,6 +77,9 @@ function itemDiagnostics(item: ReconItem) {
 }
 
 function conflictLabel(conflict: NonNullable<DiagnosticCandidate["conflicts"]>[number]) {
+  if (conflict.field === "broker") {
+    return `broker: transaction ${String(conflict.transaction ?? "unknown")} vs recording ${String(conflict.recording ?? "unknown")}`;
+  }
   return `${conflict.field}: ${String(conflict.transaction ?? "unknown")} vs ${String(conflict.recording ?? "unknown")}`;
 }
 

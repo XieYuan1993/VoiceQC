@@ -423,7 +423,7 @@ export function RecordingDetailView({
             <CardContent>
               <dl className="grid grid-cols-2 gap-x-4 gap-y-4">
                 <MetaItem label="Agent" source="filename">
-                  {rec.broker_ext ?? "—"}
+                  {[rec.broker_ext, rec.broker_name].filter(Boolean).join(" / ") || "--"}
                 </MetaItem>
                 <MetaItem label="Client" source="call">
                   {rec.client_name ?? "—"}
