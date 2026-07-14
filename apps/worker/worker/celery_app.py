@@ -77,7 +77,7 @@ app.conf.update(
         },
         "monitor-evaluating-cases": {
             "task": "voiceqa.monitor.evaluating_cases",
-            "schedule": 600.0,
+            "schedule": 1200.0,
         },
         "apply-retention": {
             "task": "voiceqa.maintenance.apply_retention",
