@@ -283,6 +283,9 @@ async def list_recordings(
 async def reevaluate_recordings(
     payload: RecordingReevaluateIn | None = Body(default=None),
     batch_id: uuid.UUID | None = None,
+    status_filter: str | None = Query(default=None, alias="status"),
+    call_date: date | None = None,
+    q: str | None = Query(default=None, max_length=200),
     attention: bool = False,
     project_id: uuid.UUID = Depends(resolve_project_id),
     user: User = Depends(require(EVALS_REVIEW)),
@@ -304,6 +307,22 @@ async def reevaluate_recordings(
         stmt = stmt.where(Recording.id.in_(recording_ids))
     if batch_id is not None:
         stmt = stmt.where(Recording.batch_id == batch_id)
+    if status_filter:
+        stmt = stmt.where(Recording.status == status_filter)
+    if call_date is not None:
+        start = datetime.combine(call_date, time.min, tzinfo=HK)
+        stmt = stmt.where(
+            Recording.call_started_at >= start,
+            Recording.call_started_at < start + timedelta(days=1),
+        )
+    if q:
+        transcript_match = exists(
+            select(Transcript.id).where(
+                Transcript.recording_id == Recording.id,
+                Transcript.full_text.ilike(f"%{q}%"),
+            )
+        )
+        stmt = stmt.where(or_(Recording.original_filename.ilike(f"%{q}%"), transcript_match))
     if attention:
         stmt = stmt.where(Recording.id.in_(_attention_ids()))
     recs = (await session.execute(stmt)).scalars().all()
@@ -343,6 +362,9 @@ async def reevaluate_recordings(
             "queued": len(to_enqueue),
             "batch_id": str(batch_id) if batch_id is not None else None,
             "recording_ids": len(recording_ids),
+            "status": status_filter,
+            "call_date": call_date.isoformat() if call_date is not None else None,
+            "q": bool(q),
             "attention": attention,
         }, ip=meta.ip, user_agent=meta.user_agent,
     )
@@ -356,6 +378,7 @@ async def reevaluate_recordings(
 async def export_recordings(
     batch_id: uuid.UUID | None = None,
     status_filter: str | None = Query(default=None, alias="status"),
+    call_date: date | None = None,
     q: str | None = Query(default=None, max_length=200),
     attention: bool = False,
     project_id: uuid.UUID = Depends(resolve_project_id),
@@ -398,6 +421,12 @@ async def export_recordings(
         stmt = stmt.where(Recording.batch_id == batch_id)
     if status_filter:
         stmt = stmt.where(Recording.status == status_filter)
+    if call_date is not None:
+        start = datetime.combine(call_date, time.min, tzinfo=HK)
+        stmt = stmt.where(
+            Recording.call_started_at >= start,
+            Recording.call_started_at < start + timedelta(days=1),
+        )
     if attention:
         stmt = stmt.where(Recording.id.in_(_attention_ids()))
     if q:

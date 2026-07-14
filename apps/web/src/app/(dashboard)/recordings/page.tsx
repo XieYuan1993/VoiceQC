@@ -85,7 +85,13 @@ export default async function RecordingsPage({
             Browse calls across all batches; click a row for audio and transcript.
           </p>
         </div>
-        <RecordingActions projectId={projectId || ""} status={status} q={q} canManage={manage} />
+        <RecordingActions
+          projectId={projectId || ""}
+          status={status}
+          callDate={callDate}
+          q={q}
+          canManage={manage}
+        />
       </div>
 
       <RecordingFilters

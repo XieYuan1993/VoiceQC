@@ -17,11 +17,13 @@ import { apiCall, getApiErrorMessage } from "@/lib/api";
 export function RecordingActions({
   projectId,
   status,
+  callDate,
   q,
   canManage,
 }: {
   projectId: string;
   status: string;
+  callDate: string;
   q: string;
   canManage: boolean;
 }) {
@@ -33,8 +35,10 @@ export function RecordingActions({
   const params = new URLSearchParams();
   if (projectId) params.set("project_id", projectId);
   if (status) params.set("status", status);
+  if (callDate) params.set("call_date", callDate);
   if (q) params.set("q", q);
   const exportHref = `/api/recordings/export?${params.toString()}`;
+  const hasFilters = Boolean(status || callDate || q);
 
   async function reevaluate() {
     setPending(true);
@@ -42,7 +46,14 @@ export function RecordingActions({
     setResult(null);
     try {
       const res = await apiCall("/api/recordings/reevaluate", "post", {
-        params: { query: { project_id: projectId || undefined } },
+        params: {
+          query: {
+            project_id: projectId || undefined,
+            status: status || undefined,
+            call_date: callDate || undefined,
+            q: q || undefined,
+          },
+        },
       });
       setResult(`Queued ${res.queued} call${res.queued === 1 ? "" : "s"} for re-evaluation.`);
     } catch (e) {
@@ -71,17 +82,19 @@ export function RecordingActions({
           }}
         >
           <RefreshCw className="mr-2 h-4 w-4" aria-hidden />
-          Re-evaluate all
+          {hasFilters ? "Re-evaluate filtered" : "Re-evaluate all"}
         </Button>
       )}
       {open && (
         <Dialog open onOpenChange={(o) => !o && setOpen(false)}>
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>Re-evaluate all transcribed calls?</DialogTitle>
+              <DialogTitle>
+                Re-evaluate {hasFilters ? "filtered" : "all"} transcribed calls?
+              </DialogTitle>
               <DialogDescription>
-                Re-runs the LLM evaluation for every transcribed recording in this
-                project under the current criteria, checklist and knowledge base. This consumes LLM
+                Re-runs the LLM evaluation for every transcribed recording matching the current
+                filters under the current criteria, checklist and knowledge base. This consumes LLM
                 tokens; previous runs are kept.
               </DialogDescription>
             </DialogHeader>
@@ -94,7 +107,7 @@ export function RecordingActions({
               {!result && (
                 <Button onClick={reevaluate} disabled={pending}>
                   {pending && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />}
-                  Re-evaluate all
+                  Re-evaluate {hasFilters ? "filtered" : "all"}
                 </Button>
               )}
             </DialogFooter>
