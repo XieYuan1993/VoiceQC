@@ -9,6 +9,7 @@ Usage from repo root:
   uv run python scripts/backfill_recording_broker_names.py --batch-id <uuid> --zip calls.zip
   uv run python scripts/backfill_recording_broker_names.py --batch-id <uuid> --from-gcs
   uv run python scripts/backfill_recording_broker_names.py --batch-id <uuid> --zip calls.zip --apply
+  uv run python scripts/backfill_recording_broker_names.py --bundle-zip AE.zip --only-unmapped-extension
 """
 
 from __future__ import annotations
@@ -38,7 +39,7 @@ except ImportError:
 
 from sqlalchemy import func, select  # noqa: E402
 from voiceqa_shared import gcs  # noqa: E402
-from voiceqa_shared.db_models import Recording, UploadBatch  # noqa: E402
+from voiceqa_shared.db_models import Broker, Recording, UploadBatch  # noqa: E402
 from worker.db import SessionLocal  # noqa: E402
 from worker.tasks.ingest import (  # noqa: E402
     TEXT_EXTS,
@@ -85,7 +86,9 @@ def _metadata_has_value(meta: Metadata) -> bool:
     return any(meta.get(k) for k in ("broker_name", "broker_ext", "caller_number", "started_at"))
 
 
-def _merge_metadata(target: dict[str, Metadata], source: str, metadata: dict[str, Metadata]) -> None:
+def _merge_metadata(
+    target: dict[str, Metadata], source: str, metadata: dict[str, Metadata]
+) -> None:
     for name, meta in metadata.items():
         if _metadata_has_value(meta):
             target[f"{source}:{name}"] = meta
@@ -106,7 +109,9 @@ def _load_local_txt_dir(path: Path) -> dict[str, Metadata]:
     out: dict[str, Metadata] = {}
     for file in path.rglob("*"):
         if file.is_file() and file.suffix.lower() in TEXT_EXTS:
-            out[str(file.relative_to(path))] = _parse_call_export_text(_decode_text(file.read_bytes()))
+            out[str(file.relative_to(path))] = _parse_call_export_text(
+                _decode_text(file.read_bytes())
+            )
     return out
 
 
@@ -222,7 +227,12 @@ def _load_bundle_zips(paths: Iterable[str]) -> list[BundleZip]:
     return [_load_bundle_zip(Path(path)) for path in paths]
 
 
-def _batch_inputs_from_bundle_zips(bundles: list[BundleZip]) -> list[BatchInput]:
+def _batch_inputs_from_bundle_zips(
+    bundles: list[BundleZip],
+    *,
+    include_existing_names: bool = False,
+    aliases: dict[str, str] | None = None,
+) -> list[BatchInput]:
     rows: list[BatchInput] = []
     with SessionLocal() as session:
         batches = session.execute(
@@ -240,17 +250,20 @@ def _batch_inputs_from_bundle_zips(bundles: list[BundleZip]) -> list[BatchInput]
         ).all()
 
     for batch in batches:
-        if not batch.missing_broker_name:
+        if not include_existing_names and not batch.missing_broker_name:
             continue
         key = _batch_match_key(batch.name)
+        bundle_key = (aliases or {}).get(key, key)
         matches = [
-            (bundle.source, bundle.inner_zips[key])
+            (bundle.source, bundle.inner_zips[bundle_key])
             for bundle in bundles
-            if key in bundle.inner_zips
+            if bundle_key in bundle.inner_zips
         ]
         if not matches:
             print(f"[{batch.id}] no inner zip matched batch name {batch.name!r} (key={key!r})")
             continue
+        if bundle_key != key:
+            print(f"[{batch.id}] bundle alias {key!r} -> {bundle_key!r}")
         if len(matches) > 1:
             print(f"[{batch.id}] multiple inner zips matched {batch.name!r}; using {matches[0][0]}")
         rows.append(
@@ -260,7 +273,7 @@ def _batch_inputs_from_bundle_zips(bundles: list[BundleZip]) -> list[BatchInput]
                 txt_dirs=[],
                 from_gcs=False,
                 gcs_prefixes=[],
-                inline_zips=[(f"{matches[0][0]}:{key}.zip", matches[0][1])],
+                inline_zips=[(f"{matches[0][0]}:{bundle_key}.zip", matches[0][1])],
             )
         )
     return rows
@@ -279,6 +292,10 @@ def run_batch(args: argparse.Namespace, batch: BatchInput) -> int:
     previews: list[tuple[UpdatePreview, list[str]]] = []
 
     with SessionLocal() as session:
+        extensions: dict[str, list[str]] = {}
+        for broker in session.execute(select(Broker).where(Broker.active.is_(True))).scalars():
+            for extension in broker.phone_extensions or []:
+                extensions.setdefault(str(extension).strip(), []).append(broker.code)
         recordings = (
             session.execute(
                 select(Recording)
@@ -303,7 +320,16 @@ def run_batch(args: argparse.Namespace, batch: BatchInput) -> int:
                     match_key = key
                     break
             matched += 1
-            if args.only_missing_broker_name and rec.broker_name:
+            current_extension = str(rec.broker_ext).strip() if rec.broker_ext else ""
+            has_unique_extension_mapping = len(extensions.get(current_extension, [])) == 1
+            if args.only_unmapped_extension and has_unique_extension_mapping:
+                unchanged += 1
+                continue
+            if (
+                not args.only_unmapped_extension
+                and args.only_missing_broker_name
+                and rec.broker_name
+            ):
                 unchanged += 1
                 continue
             before = {
@@ -388,7 +414,17 @@ def run(args: argparse.Namespace) -> int:
 
     if args.bundle_zip:
         bundles = _load_bundle_zips(args.bundle_zip)
-        batches = _batch_inputs_from_bundle_zips(bundles)
+        aliases = {}
+        for raw_alias in args.bundle_alias or []:
+            source, separator, target = raw_alias.partition("=")
+            if not separator or not source.strip() or not target.strip():
+                raise ValueError("--bundle-alias must be BATCH_NAME=INNER_ZIP_NAME")
+            aliases[_batch_match_key(source)] = _batch_match_key(target)
+        batches = _batch_inputs_from_bundle_zips(
+            bundles,
+            include_existing_names=args.only_unmapped_extension,
+            aliases=aliases,
+        )
     elif args.map_file:
         batches = _read_map_file(Path(args.map_file))
     else:
@@ -434,6 +470,14 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--bundle-alias",
+        action="append",
+        help=(
+            "Explicit batch-to-inner-ZIP name alias, e.g. "
+            "0511_0515_ShunfaiTing=0511_0515_ShufaiTing. Can be repeated."
+        ),
+    )
+    parser.add_argument(
         "--zip",
         action="append",
         help="Local ZIP file containing audio and TXT metadata. Can be provided multiple times.",
@@ -464,6 +508,15 @@ def parse_args() -> argparse.Namespace:
         dest="only_missing_broker_name",
         action="store_false",
         help="Allow overwriting existing broker_name when TXT metadata differs.",
+    )
+    parser.add_argument(
+        "--only-unmapped-extension",
+        action="store_true",
+        help=(
+            "Only update recordings whose current extension has no unique active Broker mapping. "
+            "This safely skips records already repaired from a configured extension and allows "
+            "Extension Name from TXT to replace an existing Caller Name."
+        ),
     )
     parser.add_argument("--apply", action="store_true", help="Write changes to the database.")
     parser.add_argument("--limit", type=int, default=50, help="Maximum changed rows to print.")
