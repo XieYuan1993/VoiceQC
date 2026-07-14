@@ -100,6 +100,7 @@ def _params_from_snapshot(snapshot: dict) -> Params:
         auto_match=float(thresholds.get("auto_match", 0.75)),
         needs_review=float(thresholds.get("needs_review", 0.45)),
         before_hours=int(window.get("before_hours", 6)),
+        us_before_hours=int(window.get("us_before_hours", 18)),
         after_minutes=int(window.get("after_minutes", 15)),
         phone_only=bool(snapshot.get("phone_only", True)),
     )
@@ -243,9 +244,14 @@ def _date_range_from_snapshot(trade_date: date, snapshot: dict | None) -> tuple[
 
 
 def _load_views(
-    session, trade_date_from, trade_date_to=None, transaction_filters: dict | None = None
+    session,
+    trade_date_from,
+    trade_date_to=None,
+    transaction_filters: dict | None = None,
+    params: Params | None = None,
 ) -> tuple[list[TxnView], list[InstrView], list[str], int]:
     trade_date_to = trade_date_to or trade_date_from
+    params = params or Params()
     txn_rows = list(
         session.execute(
             select(Transaction).where(
@@ -258,12 +264,19 @@ def _load_views(
 
     day_start = datetime.combine(trade_date_from, time.min, tzinfo=HK)
     day_end = datetime.combine(trade_date_to + timedelta(days=1), time.min, tzinfo=HK)
+    max_before_hours = max(params.before_hours, params.us_before_hours)
+    anchors = [t.anchor for t in txns if t.anchor is not None]
+    if anchors:
+        rec_start = min(day_start, min(anchors) - timedelta(hours=max_before_hours))
+        rec_end = max(day_end, max(anchors) + timedelta(minutes=params.after_minutes))
+    else:
+        rec_start, rec_end = day_start, day_end
     recordings = (
         session.execute(
             select(Recording).where(
                 Recording.status == "completed",
-                Recording.call_started_at >= day_start,
-                Recording.call_started_at < day_end,
+                Recording.call_started_at >= rec_start,
+                Recording.call_started_at < rec_end,
             )
         )
         .scalars()
@@ -322,7 +335,7 @@ def _load_views(
             candidates = candidates_by_recording.get(rec.id)
             if candidates is None:
                 low = rec.call_started_at - timedelta(minutes=15)
-                high = rec.call_started_at + timedelta(hours=6)
+                high = rec.call_started_at + timedelta(hours=max_before_hours)
                 left = bisect_left(candidate_times, low)
                 right = bisect_right(candidate_times, high)
                 counts = Counter((code, name) for _at, code, name in candidate_rows[left:right])
@@ -430,6 +443,7 @@ def run(self, run_id: str) -> None:
                 trade_date_from,
                 trade_date_to,
                 (recon_run.params_snapshot or {}).get("transaction_filters"),
+                params,
             )
 
             brokers = session.execute(select(Broker)).scalars().all()

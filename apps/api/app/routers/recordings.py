@@ -16,7 +16,7 @@ from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from sqlalchemy import Select, and_, cast, exists, func, or_, select
@@ -52,6 +52,7 @@ from app.schemas import (
     RecordingDetail,
     RecordingListOut,
     RecordingOut,
+    RecordingReevaluateIn,
     SegmentOut,
     TranscriptOut,
 )
@@ -280,6 +281,7 @@ async def list_recordings(
 
 @router.post("/reevaluate", response_model=BulkRerunOut)
 async def reevaluate_recordings(
+    payload: RecordingReevaluateIn | None = Body(default=None),
     batch_id: uuid.UUID | None = None,
     attention: bool = False,
     project_id: uuid.UUID = Depends(resolve_project_id),
@@ -287,13 +289,19 @@ async def reevaluate_recordings(
     session: AsyncSession = Depends(get_session),
     meta: ClientMeta = Depends(client_meta),
 ) -> BulkRerunOut:
-    """Re-evaluate every completed, transcribed recording in the project (or one
-    batch / the attention set) under the current config. Consumes LLM tokens."""
+    """Re-evaluate transcribed recordings under the current config.
+
+    Scope can be the whole project, one batch, the attention set, or an explicit
+    list of recording ids. Active pipeline rows stay untouched.
+    """
     extensions = await _scope_extensions(session, user)
+    recording_ids = payload.recording_ids if payload is not None else []
     stmt = _apply_scope(select(Recording), extensions).where(
         Recording.project_id == project_id,
-        Recording.status == "completed",
+        Recording.status.not_in(("uploaded", "converting", "transcribing", "evaluating")),
     )
+    if recording_ids:
+        stmt = stmt.where(Recording.id.in_(recording_ids))
     if batch_id is not None:
         stmt = stmt.where(Recording.batch_id == batch_id)
     if attention:
@@ -331,7 +339,12 @@ async def reevaluate_recordings(
     log_audit(
         session, action="evaluation.rerun_bulk", user_id=user.id, actor_email=user.email,
         object_type="project", object_id=str(project_id),
-        details={"queued": len(to_enqueue)}, ip=meta.ip, user_agent=meta.user_agent,
+        details={
+            "queued": len(to_enqueue),
+            "batch_id": str(batch_id) if batch_id is not None else None,
+            "recording_ids": len(recording_ids),
+            "attention": attention,
+        }, ip=meta.ip, user_agent=meta.user_agent,
     )
     await session.commit()
     for rid in to_enqueue:

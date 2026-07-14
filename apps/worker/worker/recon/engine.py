@@ -75,6 +75,7 @@ class Params:
     auto_match: float = 0.75
     needs_review: float = 0.45
     before_hours: int = 6
+    us_before_hours: int = 18
     after_minutes: int = 3
     phone_only: bool = True
     quantity_tolerance: float = 0.10
@@ -211,6 +212,16 @@ def _price_score(txn: TxnView, instr: InstrView, tol: float) -> float:
     return 0.0
 
 
+def _uses_extended_before_window(txn: TxnView) -> bool:
+    return bool(re.search(r"[A-Za-z]", txn.stock_code or ""))
+
+
+def _before_hours(txn: TxnView, params: Params) -> int:
+    if _uses_extended_before_window(txn):
+        return max(params.before_hours, params.us_before_hours)
+    return params.before_hours
+
+
 def _client_score(txn: TxnView, instr: InstrView) -> float:
     txn_acct, instr_acct = _digits(txn.client_account), _digits(instr.client_account_raw)
     account_contradicts = False
@@ -241,7 +252,7 @@ def _time_score(txn: TxnView, instr: InstrView, params: Params) -> float:
     if instr.call_started_at <= txn.anchor <= call_end:
         return 1.0
     if txn.anchor > call_end:
-        window = timedelta(hours=max(params.before_hours, 1))
+        window = timedelta(hours=max(_before_hours(txn, params), 1))
         frac = (txn.anchor - call_end) / window
         return max(0.2, 1.0 - 0.8 * min(float(frac), 1.0))
     window = timedelta(minutes=max(params.after_minutes, 1))
@@ -252,7 +263,7 @@ def _time_score(txn: TxnView, instr: InstrView, params: Params) -> float:
 def _in_window(txn: TxnView, instr: InstrView, params: Params) -> bool:
     if txn.anchor is None or instr.call_started_at is None:
         return True  # cannot exclude on time — content must carry it
-    low = txn.anchor - timedelta(hours=params.before_hours)
+    low = txn.anchor - timedelta(hours=_before_hours(txn, params))
     high = txn.anchor + timedelta(minutes=params.after_minutes)
     return low <= instr.call_started_at <= high
 
@@ -300,6 +311,7 @@ def score_pair(
         "components": {k: round(v, 3) for k, v in components.items()},
         "weights": weights,
         "stock_note": stock_note,
+        "window_before_hours": _before_hours(txn, params),
         "broker_name_match": broker_name_match,
         "penalty": penalty,
     }

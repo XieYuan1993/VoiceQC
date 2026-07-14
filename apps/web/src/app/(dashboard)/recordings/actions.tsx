@@ -78,9 +78,9 @@ export function RecordingActions({
         <Dialog open onOpenChange={(o) => !o && setOpen(false)}>
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>Re-evaluate all completed calls?</DialogTitle>
+              <DialogTitle>Re-evaluate all transcribed calls?</DialogTitle>
               <DialogDescription>
-                Re-runs the LLM evaluation for every completed, transcribed recording in this
+                Re-runs the LLM evaluation for every transcribed recording in this
                 project under the current criteria, checklist and knowledge base. This consumes LLM
                 tokens; previous runs are kept.
               </DialogDescription>

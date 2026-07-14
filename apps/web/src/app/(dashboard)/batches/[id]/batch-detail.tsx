@@ -97,6 +97,10 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
   const [rerunModel, setRerunModel] = React.useState("16k_zh_en");
   const [rerunAutoRetry, setRerunAutoRetry] = React.useState(true);
   const [rerunningStt, setRerunningStt] = React.useState(false);
+  const [rerunningEval, setRerunningEval] = React.useState(false);
+  const [selectedRecordingIds, setSelectedRecordingIds] = React.useState<Set<string>>(
+    () => new Set(),
+  );
 
   const batchRef = React.useRef<Batch | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -284,6 +288,44 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
     }
   }
 
+  async function onRerunEvaluation(recordingIds?: string[]) {
+    const selectedCount = recordingIds?.length ?? 0;
+    const scopeText =
+      selectedCount > 0
+        ? `${selectedCount} selected recording${selectedCount === 1 ? "" : "s"}`
+        : "every transcribed recording in this batch";
+    if (!window.confirm(`Re-evaluate ${scopeText}? This consumes LLM tokens.`)) return;
+
+    setActionError(null);
+    setNotice(null);
+    setRerunningEval(true);
+    try {
+      const query = new URLSearchParams({ batch_id: batchId });
+      const res = await apiJson<{ queued: number }>(
+        `/api/recordings/reevaluate?${query.toString()}`,
+        "post",
+        {
+          body: selectedCount > 0 ? { recording_ids: recordingIds } : undefined,
+        },
+      );
+      setNotice(
+        `Queued ${res.queued} recording${res.queued === 1 ? "" : "s"} for evaluation rerun.`,
+      );
+      if (selectedCount > 0) {
+        setSelectedRecordingIds((prev) => {
+          const next = new Set(prev);
+          for (const id of recordingIds ?? []) next.delete(id);
+          return next;
+        });
+      }
+      refresh();
+    } catch (e) {
+      setActionError(getApiErrorMessage(e));
+    } finally {
+      setRerunningEval(false);
+    }
+  }
+
   if (loadError !== null && batch === null) {
     return (
       <div className="space-y-4">
@@ -324,6 +366,11 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
   const hasFiles = serverFileCount > 0 || uploads.some((u) => u.state === "done");
   const canFinalize = hasFiles && !uploadsInFlight;
   const recPageCount = recordings ? Math.max(1, Math.ceil(recordings.total / REC_PAGE_SIZE)) : 1;
+  const currentPageIds = recordings?.items.map((r) => r.id) ?? [];
+  const selectedOnPage = currentPageIds.filter((id) => selectedRecordingIds.has(id));
+  const allCurrentPageSelected =
+    currentPageIds.length > 0 && selectedOnPage.length === currentPageIds.length;
+  const selectedCount = selectedRecordingIds.size;
 
   return (
     <div className="space-y-6">
@@ -364,6 +411,20 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
                 <RotateCcw className="mr-2 h-4 w-4" aria-hidden />
               )}
               Rerun STT
+            </Button>
+          )}
+          {canManage && batch.status !== "open" && serverFileCount > 0 && (
+            <Button
+              variant="outline"
+              onClick={() => onRerunEvaluation()}
+              disabled={rerunningEval}
+            >
+              {rerunningEval ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+              ) : (
+                <RefreshCw className="mr-2 h-4 w-4" aria-hidden />
+              )}
+              Re-evaluate batch
             </Button>
           )}
           {canManage && batch.status === "open" && (
@@ -522,20 +583,50 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
 
       <Card className="overflow-hidden">
         <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            Recordings
-            {recordings !== null && (
-              <span className="text-sm font-normal text-muted-foreground">
-                ({recordings.total})
-              </span>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              Recordings
+              {recordings !== null && (
+                <span className="text-sm font-normal text-muted-foreground">
+                  ({recordings.total})
+                </span>
+              )}
+              {processing && (
+                <Loader2
+                  className="h-4 w-4 animate-spin text-muted-foreground"
+                  aria-label="Refreshing"
+                />
+              )}
+            </CardTitle>
+            {canManage && selectedCount > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">
+                  {selectedCount} selected
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onRerunEvaluation(Array.from(selectedRecordingIds))}
+                  disabled={rerunningEval}
+                >
+                  {rerunningEval ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+                  ) : (
+                    <RefreshCw className="mr-2 h-4 w-4" aria-hidden />
+                  )}
+                  Re-evaluate selected
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedRecordingIds(new Set())}
+                  disabled={rerunningEval}
+                >
+                  Clear
+                </Button>
+              </div>
             )}
-            {processing && (
-              <Loader2
-                className="h-4 w-4 animate-spin text-muted-foreground"
-                aria-label="Refreshing"
-              />
-            )}
-          </CardTitle>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           {recError !== null ? (
@@ -557,6 +648,26 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
+                    {canManage && (
+                      <TableHead className="w-10">
+                        <input
+                          type="checkbox"
+                          aria-label="Select all recordings on this page"
+                          checked={allCurrentPageSelected}
+                          onChange={(e) => {
+                            const checked = e.currentTarget.checked;
+                            setSelectedRecordingIds((prev) => {
+                              const next = new Set(prev);
+                              for (const id of currentPageIds) {
+                                if (checked) next.add(id);
+                                else next.delete(id);
+                              }
+                              return next;
+                            });
+                          }}
+                        />
+                      </TableHead>
+                    )}
                     <TableHead>Filename</TableHead>
                     <TableHead>Agent</TableHead>
                     <TableHead>Call time</TableHead>
@@ -568,6 +679,24 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
                 <TableBody>
                   {recordings.items.map((r) => (
                     <TableRow key={r.id}>
+                      {canManage && (
+                        <TableCell>
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${r.original_filename}`}
+                            checked={selectedRecordingIds.has(r.id)}
+                            onChange={(e) => {
+                              const checked = e.currentTarget.checked;
+                              setSelectedRecordingIds((prev) => {
+                                const next = new Set(prev);
+                                if (checked) next.add(r.id);
+                                else next.delete(r.id);
+                                return next;
+                              });
+                            }}
+                          />
+                        </TableCell>
+                      )}
                       <TableCell className="max-w-[320px]">
                         <Link
                           href={`/recordings/${r.id}`}
@@ -588,12 +717,25 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
                         <StatusBadge status={r.status} />
                       </TableCell>
                       <TableCell className="text-right">
-                        <Link
-                          href={`/recordings/${r.id}`}
-                          className="text-sm text-primary hover:underline"
-                        >
-                          View
-                        </Link>
+                        <div className="flex items-center justify-end gap-2">
+                          {canManage && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => onRerunEvaluation([r.id])}
+                              disabled={rerunningEval}
+                              title="Re-evaluate this recording"
+                            >
+                              <RefreshCw className="h-4 w-4" aria-hidden />
+                            </Button>
+                          )}
+                          <Link
+                            href={`/recordings/${r.id}`}
+                            className="text-sm text-primary hover:underline"
+                          >
+                            View
+                          </Link>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}

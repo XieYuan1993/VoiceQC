@@ -169,6 +169,10 @@ class RecordingListOut(BaseModel):
     page_size: int
 
 
+class RecordingReevaluateIn(BaseModel):
+    recording_ids: list[uuid.UUID] = Field(default_factory=list, max_length=1000)
+
+
 class SegmentOut(BaseModel):
     channel_role: str
     start_ms: int

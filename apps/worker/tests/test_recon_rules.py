@@ -219,6 +219,49 @@ def test_call_outside_configured_window_is_rejected() -> None:
     assert result.matched == []
 
 
+def test_us_ticker_uses_extended_before_window() -> None:
+    transaction = TxnView(
+        id="T-us-window",
+        anchor=hk("23:30"),
+        broker_code="AE012",
+        client_account="0188",
+        client_name="Client",
+        stock_code="RKLB",
+        stock_name=None,
+        side="buy",
+        quantity=100,
+        price=10,
+        channel="phone",
+    )
+    instruction = InstrView(
+        id="I-us-window",
+        recording_id="R-us-window",
+        call_started_at=hk("10:00"),
+        call_duration_seconds=120,
+        broker_ext="2012",
+        stock_code="RKLB",
+        stock_name_raw=None,
+        side="buy",
+        quantity=100,
+        price=10,
+        price_type="limit",
+        client_name_raw=None,
+        client_account_raw=None,
+    )
+
+    result = run_match(
+        [transaction],
+        [instruction],
+        [],
+        params=Params(before_hours=6, us_before_hours=18, after_minutes=15),
+        alias_map={},
+        broker_extensions={"AE012": {"2012"}},
+    )
+
+    assert len(result.matched) == 1
+    assert result.matched[0].breakdown["window_before_hours"] == 18
+
+
 def test_broker_full_name_can_rescue_extension_mismatch() -> None:
     transaction = TxnView(
         id="T-name",
