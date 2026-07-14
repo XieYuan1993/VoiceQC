@@ -380,6 +380,53 @@ def test_replace_amend_broker_conflict_is_review_only():
     assert "broker" in pair.breakdown["capped"]
 
 
+def test_extension_mapping_overrides_stale_recording_broker_name():
+    transaction = TxnView(
+        id="EXTENSION",
+        anchor=hk("16:00"),
+        broker_code="ORDER-SYSTEM-51",
+        broker_name="Halu Tang",
+        client_account="3703",
+        client_name="Customer",
+        stock_code="2800",
+        stock_name=None,
+        side="buy",
+        quantity=1000,
+        price=26.52,
+        channel="phone",
+    )
+    instruction = InstrView(
+        id="EXT-INSTR",
+        recording_id="EXT-REC",
+        call_started_at=hk("15:59"),
+        call_duration_seconds=120,
+        broker_ext="5409",
+        broker_name="Lai Iu Wah",
+        stock_code="2800",
+        stock_name_raw=None,
+        side="buy",
+        quantity=1000,
+        price=26.52,
+        price_type="limit",
+        client_name_raw="Customer",
+        client_account_raw="3703",
+    )
+    result = run_match(
+        [transaction],
+        [instruction],
+        [],
+        params=Params(),
+        alias_map={},
+        broker_extensions={fold("Halu Tang"): {"5409"}},
+    )
+
+    pair = result.matched[0]
+    assert pair.status == "auto_matched"
+    assert pair.breakdown["broker_match"] is True
+    assert pair.breakdown["broker_name_match"] is False
+    assert not [c for c in pair.breakdown["conflict_fields"] if c["field"] == "broker"]
+
+
 def test_unmatched_reasons_distinguish_day_window_and_content():
     transactions = [
         txn("NO-DAY", "10:00", "AE012", "1", "A", "700", "buy", 1, 1),

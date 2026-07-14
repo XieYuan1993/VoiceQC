@@ -19,6 +19,7 @@ Other Party: 97871494
 Call Direction: Outgoing
 Caller Number: 9539
 Called Number: 97871494
+Caller Name: Customer Wong
 Extension Name: Amy Lam
 """
 
@@ -40,6 +41,18 @@ def test_parse_call_export_text_metadata():
     assert meta["caller_number"] == "97871494"
     assert meta["direction"] == "OUT"
     assert _metadata_key_from_start(meta) == "20260511_081654"
+
+
+def test_caller_name_is_not_used_as_broker_name():
+    meta = _parse_call_export_text(
+        """Call Start Time: 11 May 2026 08:16:54
+Extension: 9539
+Caller Name: Customer Wong
+Call Direction: Outgoing
+"""
+    )
+
+    assert meta["broker_name"] is None
 
 
 def test_match_metadata_by_same_or_contained_name():

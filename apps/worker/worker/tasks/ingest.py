@@ -79,11 +79,11 @@ def _parse_call_export_text(text: str) -> dict[str, str | datetime | None]:
     return {
         "started_at": started_at,
         "broker_ext": fields.get("extension") or None,
-        "broker_name": fields.get("caller name")
-        or fields.get("extension name")
+        # Caller Name is the remote party/customer in these PBX exports.
+        # Extension/User/Agent Name identifies the broker who owns the line.
+        "broker_name": fields.get("extension name")
         or fields.get("user name")
         or fields.get("agent name")
-        or fields.get("name")
         or None,
         "caller_number": fields.get("other party")
         or fields.get("called number")
@@ -164,7 +164,8 @@ def _expand_zips(session, batch_id: str, project_id) -> int:
             with zipfile.ZipFile(zip_path) as zf:
                 txt_metadata = _load_zip_text_metadata(zf)
                 members = [
-                    m for m in zf.infolist()
+                    m
+                    for m in zf.infolist()
                     if not m.is_dir()
                     and not m.filename.startswith("__MACOSX")
                     and not Path(m.filename).name.startswith(".")
@@ -174,7 +175,9 @@ def _expand_zips(session, batch_id: str, project_id) -> int:
                     raise RuntimeError(f"zip has {len(members)} members (max {MAX_ZIP_MEMBERS})")
                 total = sum(m.file_size for m in members)
                 if total > MAX_TOTAL_UNCOMPRESSED:
-                    raise RuntimeError(f"zip expands to {total} bytes (max {MAX_TOTAL_UNCOMPRESSED})")
+                    raise RuntimeError(
+                        f"zip expands to {total} bytes (max {MAX_TOTAL_UNCOMPRESSED})"
+                    )
 
                 for member in members:
                     if member.file_size > MAX_MEMBER_BYTES:
@@ -214,9 +217,7 @@ def _expand_zips(session, batch_id: str, project_id) -> int:
                             recording,
                             _match_metadata_for_audio(name, txt_metadata),
                         )
-                    session.add(
-                        recording
-                    )
+                    session.add(recording)
                     created += 1
         gcs.delete_key(key)
     session.commit()
@@ -285,9 +286,9 @@ def expand_batch(self, batch_id: str) -> None:
         _parse_filenames(session, batch_id, project_id)
 
         batch.total_files = session.execute(
-            select(func.count()).select_from(Recording).where(
-                Recording.batch_id == uuid.UUID(batch_id)
-            )
+            select(func.count())
+            .select_from(Recording)
+            .where(Recording.batch_id == uuid.UUID(batch_id))
         ).scalar_one()
         session.commit()
 

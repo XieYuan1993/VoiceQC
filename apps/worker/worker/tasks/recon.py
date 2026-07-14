@@ -467,7 +467,11 @@ def run(self, run_id: str) -> None:
             )
 
             brokers = session.execute(select(Broker)).scalars().all()
-            broker_extensions = {b.code: set(b.phone_extensions or []) for b in brokers}
+            broker_extensions: dict[str, set[str]] = {}
+            for broker in brokers:
+                extensions = set(broker.phone_extensions or [])
+                broker_extensions.setdefault(broker.code, set()).update(extensions)
+                broker_extensions.setdefault(engine.fold(broker.name), set()).update(extensions)
             alias_map: dict[str, str] = {}
             for term in session.execute(
                 select(IndustryTerm).where(IndustryTerm.active.is_(True))

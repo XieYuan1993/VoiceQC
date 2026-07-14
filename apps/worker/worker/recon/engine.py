@@ -163,6 +163,14 @@ def _broker_name_matches(txn: TxnView, instr: InstrView) -> bool:
     return SequenceMatcher(None, txn_key, instr_key).ratio() >= 0.9
 
 
+def _txn_extensions(txn: TxnView, broker_extensions: dict[str, set[str]]) -> set[str]:
+    """Resolve PBX extensions by order-system code or canonical broker name."""
+    return {
+        *broker_extensions.get(txn.broker_code or "", set()),
+        *broker_extensions.get(fold(txn.broker_name), set()),
+    }
+
+
 def _broker_matches(
     txn: TxnView,
     broker_name: str | None,
@@ -187,7 +195,7 @@ def _broker_matches(
     )
     if _broker_name_matches(txn, probe):
         return True
-    exts = broker_extensions.get(txn.broker_code or "")
+    exts = _txn_extensions(txn, broker_extensions)
     return bool(exts and broker_ext in exts)
 
 
@@ -388,7 +396,7 @@ def score_pair(
     score = sum(weights[k] * components[k] for k in components) / total_weight
 
     penalty = None
-    exts = broker_extensions.get(txn.broker_code or "")
+    exts = _txn_extensions(txn, broker_extensions)
     broker_name_match = _broker_name_matches(txn, instr)
     broker_name_known = _identifying_broker_name(txn.broker_name) and _identifying_broker_name(
         instr.broker_name
@@ -437,6 +445,14 @@ def score_pair(
         "high_agreement_fields": high_agreement,
         "conflict_fields": _conflict_fields(txn, instr, components, dq_stock, dq_side),
     }
+    if broker_name_known and not broker_match:
+        breakdown["conflict_fields"].append(
+            {
+                "field": "broker",
+                "transaction": txn.broker_name or txn.broker_code,
+                "recording": instr.broker_name or instr.broker_ext,
+            }
+        )
     if amend_evidence is not None:
         breakdown["amend_evidence"] = amend_evidence
     return round(score, 4), breakdown
@@ -515,20 +531,18 @@ def run_match(
     pairs: list[tuple[float, TxnView, InstrView, dict, bool, int]] = []
     diagnostic_pairs: list[tuple[float, TxnView, InstrView, dict]] = []
     for txn in in_scope:
-        exts = broker_extensions.get(txn.broker_code or "")
+        exts = _txn_extensions(txn, broker_extensions)
         for instr in instrs:
             if not _in_window(txn, instr, params):
                 continue
             broker_name_match = _broker_name_matches(txn, instr)
-            broker_conflict = (
-                _identifying_broker_name(txn.broker_name)
-                and _identifying_broker_name(instr.broker_name)
-                and not broker_name_match
-            ) or (
-                exts
-                and instr.broker_ext is not None
-                and instr.broker_ext not in exts
-                and not broker_name_match
+            ext_match = bool(exts and instr.broker_ext in exts)
+            broker_conflict = not (ext_match or broker_name_match) and (
+                (
+                    _identifying_broker_name(txn.broker_name)
+                    and _identifying_broker_name(instr.broker_name)
+                )
+                or bool(exts and instr.broker_ext is not None)
             )
             score, breakdown = score_pair(txn, instr, params, alias_map, broker_extensions)
             diagnostic_pairs.append((score, txn, instr, breakdown))
