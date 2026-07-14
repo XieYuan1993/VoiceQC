@@ -49,6 +49,37 @@ const MATCH_STATUSES = [
   "manual_linked",
 ] as const;
 
+const UNMATCHED_REASONS = {
+  no_broker_recordings_day: "Broker has no calls that day",
+  no_recordings_in_window: "No broker call in time window",
+  no_matching_recording: "Calls found, none matched",
+} as const;
+
+type UnmatchedReason = keyof typeof UNMATCHED_REASONS;
+
+interface DiagnosticCandidate {
+  recording_id: string;
+  original_filename?: string | null;
+  conflicts?: Array<{ field: string; transaction: unknown; recording: unknown }>;
+}
+
+function itemDiagnostics(item: ReconItem) {
+  const raw = item.score_breakdown as {
+    unmatched_reason?: UnmatchedReason;
+    candidates?: DiagnosticCandidate[];
+    conflict_fields?: DiagnosticCandidate["conflicts"];
+  };
+  return {
+    reason: raw.unmatched_reason,
+    candidate: raw.candidates?.[0],
+    conflicts: raw.conflict_fields ?? raw.candidates?.[0]?.conflicts ?? [],
+  };
+}
+
+function conflictLabel(conflict: NonNullable<DiagnosticCandidate["conflicts"]>[number]) {
+  return `${conflict.field}: ${String(conflict.transaction ?? "unknown")} vs ${String(conflict.recording ?? "unknown")}`;
+}
+
 interface RunRange {
   from: string;
   to: string;
@@ -134,6 +165,7 @@ export function ReconView({ canManage }: { canManage: boolean }) {
   const [tab, setTab] = React.useState<Bucket>("matched");
   const [page, setPage] = React.useState(1);
   const [matchStatus, setMatchStatus] = React.useState("");
+  const [unmatchedReason, setUnmatchedReason] = React.useState("");
   const [items, setItems] = React.useState<ReconItemList | null>(null);
   const [itemsError, setItemsError] = React.useState<string | null>(null);
 
@@ -200,6 +232,7 @@ export function ReconView({ canManage }: { canManage: boolean }) {
   React.useEffect(() => {
     setPage(1);
     setMatchStatus("");
+    setUnmatchedReason("");
     setDrawerId(null);
   }, [selectedId, tab]);
 
@@ -213,6 +246,7 @@ export function ReconView({ canManage }: { canManage: boolean }) {
           query: {
             bucket: tab,
             match_status: matchStatus || undefined,
+            unmatched_reason: unmatchedReason || undefined,
             page,
             page_size: ITEMS_PAGE_SIZE,
           },
@@ -223,7 +257,7 @@ export function ReconView({ canManage }: { canManage: boolean }) {
     } catch (e) {
       setItemsError(getApiErrorMessage(e));
     }
-  }, [selectedId, tab, page, matchStatus]);
+  }, [selectedId, tab, page, matchStatus, unmatchedReason]);
 
   React.useEffect(() => {
     setItems(null);
@@ -607,6 +641,25 @@ export function ReconView({ canManage }: { canManage: boolean }) {
                   ))}
                 </Select>
               )}
+              {tab === "txn_no_recording" && (
+                <Select
+                  value={unmatchedReason}
+                  onChange={(e) => {
+                    setUnmatchedReason(e.target.value);
+                    setPage(1);
+                  }}
+                  wrapperClassName="w-64 shrink-0 py-2"
+                  className="h-8"
+                  aria-label="Filter by unmatched reason"
+                >
+                  <option value="">All unmatched reasons</option>
+                  {Object.entries(UNMATCHED_REASONS).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </Select>
+              )}
             </div>
 
             {selected.status === "running" ? (
@@ -640,7 +693,9 @@ export function ReconView({ canManage }: { canManage: boolean }) {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {items.items.map((item) => (
+                    {items.items.map((item) => {
+                      const diagnostics = itemDiagnostics(item);
+                      return (
                       <TableRow
                         key={item.id}
                         tabIndex={0}
@@ -655,6 +710,11 @@ export function ReconView({ canManage }: { canManage: boolean }) {
                         </TableCell>
                         <TableCell>
                           <MatchStatusBadge status={item.match_status} />
+                          {diagnostics.reason && (
+                            <span className="mt-1 block max-w-48 text-xs text-muted-foreground">
+                              {UNMATCHED_REASONS[diagnostics.reason]}
+                            </span>
+                          )}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
                           {formatScore(item.score)}
@@ -702,14 +762,37 @@ export function ReconView({ canManage }: { canManage: boolean }) {
                         </TableCell>
                         <TableCell className="max-w-[280px]">
                           {item.recording ? (
-                            <Link
-                              href={`/recordings/${item.recording.id}`}
-                              onClick={(e) => e.stopPropagation()}
-                              className="block truncate text-primary hover:underline"
-                              title={item.recording.original_filename}
-                            >
-                              {item.recording.original_filename}
-                            </Link>
+                            <>
+                              <Link
+                                href={`/recordings/${item.recording.id}`}
+                                onClick={(e) => e.stopPropagation()}
+                                className="block truncate text-primary hover:underline"
+                                title={item.recording.original_filename}
+                              >
+                                {item.recording.original_filename}
+                              </Link>
+                              {diagnostics.conflicts.length > 0 && (
+                                <span className="block truncate text-xs text-destructive">
+                                  {diagnostics.conflicts.map(conflictLabel).join("; ")}
+                                </span>
+                              )}
+                            </>
+                          ) : diagnostics.candidate ? (
+                            <>
+                              <Link
+                                href={`/recordings/${diagnostics.candidate.recording_id}`}
+                                onClick={(e) => e.stopPropagation()}
+                                className="block truncate text-primary hover:underline"
+                                title={diagnostics.candidate.original_filename ?? "Closest recording"}
+                              >
+                                {diagnostics.candidate.original_filename ?? "Closest recording"}
+                              </Link>
+                              {diagnostics.conflicts.length > 0 && (
+                                <span className="block truncate text-xs text-destructive">
+                                  {diagnostics.conflicts.map(conflictLabel).join("; ")}
+                                </span>
+                              )}
+                            </>
                           ) : (
                             <span className="text-muted-foreground">—</span>
                           )}
@@ -723,7 +806,8 @@ export function ReconView({ canManage }: { canManage: boolean }) {
                           ) : null}
                         </TableCell>
                       </TableRow>
-                    ))}
+                      );
+                    })}
                   </TableBody>
                 </Table>
                 {items.total > ITEMS_PAGE_SIZE && (

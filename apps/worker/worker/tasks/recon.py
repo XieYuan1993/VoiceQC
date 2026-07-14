@@ -32,7 +32,7 @@ from voiceqa_shared.db_models import (
 from worker.celery_app import app
 from worker.db import SessionLocal
 from worker.recon import engine
-from worker.recon.engine import InstrView, Params, TxnView
+from worker.recon.engine import InstrView, Params, RecordingView, TxnView
 from worker.trade_normalization import (
     MAX_SECURITY_CANDIDATES,
     infer_price_type,
@@ -168,7 +168,9 @@ def _is_rms_reject(txn: Transaction) -> bool:
     return "rms." in info or "expire_date_reject" in info
 
 
-def _action_view(txn: Transaction, action_type: str) -> TxnView:
+def _action_view(
+    txn: Transaction, action_type: str, previous: Transaction | None = None
+) -> TxnView:
     raw = txn.raw if isinstance(txn.raw, dict) else {}
     quantity = _raw_number(raw, "order_quantity", "委託數量")
     price = _raw_number(raw, "order_price", "委託價格")
@@ -188,6 +190,7 @@ def _action_view(txn: Transaction, action_type: str) -> TxnView:
         channel=txn.channel,
         broker_name=_raw_first(raw, "broker_name", "委託人", "委托人") or None,
         action_type=action_type,
+        previous_price=(_raw_number(previous.raw, "order_price") if previous is not None else None),
     )
 
 
@@ -222,7 +225,13 @@ def _transaction_action_views(
                     views.append(_action_view(txn, "new"))
             elif execution_type == "ReplaceExec":
                 if _passes_transaction_filters(txn, transaction_filters):
-                    views.append(_action_view(txn, "replace"))
+                    views.append(
+                        _action_view(
+                            txn,
+                            "replace",
+                            ordered[index - 1] if index > 0 else None,
+                        )
+                    )
             elif execution_type == "CanceledExec":
                 if _passes_transaction_filters(txn, transaction_filters):
                     views.append(_action_view(txn, "cancel"))
@@ -249,7 +258,7 @@ def _load_views(
     trade_date_to=None,
     transaction_filters: dict | None = None,
     params: Params | None = None,
-) -> tuple[list[TxnView], list[InstrView], list[str], int]:
+) -> tuple[list[TxnView], list[InstrView], list[str], int, list[RecordingView]]:
     trade_date_to = trade_date_to or trade_date_from
     params = params or Params()
     txn_rows = list(
@@ -340,8 +349,7 @@ def _load_views(
                 right = bisect_right(candidate_times, high)
                 counts = Counter((code, name) for _at, code, name in candidate_rows[left:right])
                 candidates = [
-                    security
-                    for security, _count in counts.most_common(MAX_SECURITY_CANDIDATES)
+                    security for security, _count in counts.most_common(MAX_SECURITY_CANDIDATES)
                 ]
                 candidates_by_recording[rec.id] = candidates
             stock_code = ti.stock_code
@@ -373,6 +381,8 @@ def _load_views(
                     price_type=infer_price_type(ti.price_type, ti.evidence_quote),
                     client_name_raw=ti.client_name_raw or rec.client_name,
                     client_account_raw=ti.client_account_raw or rec.client_account,
+                    evidence_quote=ti.evidence_quote,
+                    original_filename=rec.original_filename,
                 )
             )
 
@@ -381,7 +391,17 @@ def _load_views(
         for r in recordings
         if r.id in latest_eval_ids and r.id not in recordings_with_instr
     ]
-    return txns, instrs, zero_instr, recovered_stock_count
+    recording_contexts = [
+        RecordingView(
+            id=str(rec.id),
+            call_started_at=rec.call_started_at,
+            broker_ext=rec.broker_ext,
+            broker_name=rec.broker_name,
+            original_filename=rec.original_filename,
+        )
+        for rec in recordings
+    ]
+    return txns, instrs, zero_instr, recovered_stock_count, recording_contexts
 
 
 def _carry_forward_map(session, run: ReconRun) -> dict[tuple, ReconItem]:
@@ -438,7 +458,7 @@ def run(self, run_id: str) -> None:
                 recon_run.trade_date,
                 recon_run.params_snapshot,
             )
-            txns, instrs, zero_instr, recovered_stock_count = _load_views(
+            txns, instrs, zero_instr, recovered_stock_count, recording_contexts = _load_views(
                 session,
                 trade_date_from,
                 trade_date_to,
@@ -463,6 +483,7 @@ def run(self, run_id: str) -> None:
                 params=params,
                 alias_map=alias_map,
                 broker_extensions=broker_extensions,
+                recording_contexts=recording_contexts,
             )
 
             instr_by_id = {i.id: i for i in instrs}
@@ -497,7 +518,10 @@ def run(self, run_id: str) -> None:
                     severity="breach",
                     transaction_id=uuid.UUID(txn_id),
                     match_status="unmatched",
-                    score_breakdown={"candidates": result.candidates.get(txn_id, [])},
+                    score_breakdown={
+                        "unmatched_reason": result.unmatched_reasons.get(txn_id),
+                        "candidates": result.candidates.get(txn_id, []),
+                    },
                 )
             for instr_id in result.suspicious_instructions:
                 instr = instr_by_id[instr_id]

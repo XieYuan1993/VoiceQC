@@ -29,18 +29,43 @@ interface Breakdown {
   penalty: string | null;
   capped: string | null;
   splitFill: string | null;
+  conflicts: Conflict[];
+}
+
+interface Conflict {
+  field: string;
+  transaction: unknown;
+  recording: unknown;
 }
 
 // Top candidate calls the engine stored on an unmatched-trade item.
 interface Candidate {
-  instruction_id: string;
+  instruction_id: string | null;
   recording_id: string;
-  score: number;
+  score: number | null;
   stock_code: string | null;
   side: string | null;
   quantity: number | null;
+  price: number | null;
   client: string | null;
+  broker_name: string | null;
+  original_filename: string | null;
   call_started_at: string | null;
+  conflicts: Conflict[];
+}
+
+const UNMATCHED_REASON_LABELS: Record<string, string> = {
+  no_broker_recordings_day: "This broker has no recordings on the transaction day.",
+  no_recordings_in_window: "The broker has calls that day, but none in the matching time window.",
+  no_matching_recording: "Calls exist in the time window, but none satisfy the matching rules.",
+};
+
+function conflicts(raw: unknown): Conflict[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (value): value is Conflict =>
+      typeof value === "object" && value !== null && typeof (value as Conflict).field === "string",
+  );
 }
 
 function numRecord(v: unknown): Record<string, number> | null {
@@ -64,6 +89,7 @@ function parseBreakdown(raw: { [key: string]: unknown }): Breakdown {
     penalty: str(raw.penalty),
     capped: str(raw.capped),
     splitFill: str(raw.split_fill),
+    conflicts: conflicts(raw.conflict_fields),
   };
 }
 
@@ -376,6 +402,7 @@ export function ReviewDrawer({
   const instr = item.instruction;
   const rec = item.recording;
   const candidates = (item.score_breakdown as { candidates?: Candidate[] })?.candidates ?? [];
+  const unmatchedReason = str(item.score_breakdown.unmatched_reason);
 
   async function onDecide(action: "confirm" | "reject") {
     setPending(action);
@@ -620,6 +647,23 @@ export function ReviewDrawer({
           </p>
         )}
 
+        {unmatchedReason && UNMATCHED_REASON_LABELS[unmatchedReason] && (
+          <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
+            {UNMATCHED_REASON_LABELS[unmatchedReason]}
+          </div>
+        )}
+
+        {breakdown.conflicts.length > 0 && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+            <p className="font-medium">Conflicting fields</p>
+            {breakdown.conflicts.map((conflict) => (
+              <p key={conflict.field} className="mt-1 font-mono text-xs">
+                {conflict.field}: {String(conflict.transaction ?? "unknown")} vs {String(conflict.recording ?? "unknown")}
+              </p>
+            ))}
+          </div>
+        )}
+
         {/* Score breakdown */}
         {comp !== null && (
           <div className="space-y-2 rounded-md border p-4">
@@ -648,12 +692,12 @@ export function ReviewDrawer({
                 <h3 className="text-sm font-medium">Suggested calls</h3>
                 {candidates.map((c) => (
                   <div
-                    key={c.instruction_id}
+                    key={c.instruction_id ?? c.recording_id}
                     className="flex items-center justify-between gap-2 rounded-md border px-2 py-1.5"
                   >
                     <div className="min-w-0 text-sm">
                       <span className="font-medium tabular-nums">
-                        {[c.side, c.quantity != null ? formatNumber(c.quantity) : null, c.stock_code]
+                        {[c.original_filename, c.side, c.quantity != null ? formatNumber(c.quantity) : null, c.stock_code]
                           .filter(Boolean)
                           .join(" · ")}
                       </span>
@@ -663,12 +707,19 @@ export function ReviewDrawer({
                           .join(" · ")}{" "}
                         · score {formatScore(c.score)}
                       </span>
+                      {c.conflicts?.map((conflict) => (
+                        <span key={conflict.field} className="block text-xs text-destructive">
+                          {conflict.field}: {String(conflict.transaction ?? "unknown")} vs {String(conflict.recording ?? "unknown")}
+                        </span>
+                      ))}
                     </div>
                     <Button
                       size="sm"
                       variant="outline"
                       disabled={pending !== null}
-                      onClick={() => void onManualLink(c.recording_id, c.instruction_id)}
+                      onClick={() =>
+                        void onManualLink(c.recording_id, c.instruction_id ?? undefined)
+                      }
                     >
                       <Link2 className="mr-1 h-3.5 w-3.5" aria-hidden />
                       Link

@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher
 from typing import Any
+from zoneinfo import ZoneInfo
 
 DEFAULT_WEIGHTS = {
     "stock": 0.35,
@@ -32,6 +33,7 @@ DEFAULT_WEIGHTS = {
     "time": 0.05,
 }
 NO_BROKER_PENALTY = 0.85
+HK = ZoneInfo("Asia/Hong_Kong")
 
 
 @dataclass
@@ -49,6 +51,7 @@ class TxnView:
     channel: str | None
     broker_name: str | None = None
     action_type: str | None = None
+    previous_price: float | None = None
 
 
 @dataclass
@@ -67,6 +70,17 @@ class InstrView:
     client_name_raw: str | None
     client_account_raw: str | None
     broker_name: str | None = None
+    evidence_quote: str | None = None
+    original_filename: str | None = None
+
+
+@dataclass
+class RecordingView:
+    id: str
+    call_started_at: datetime | None
+    broker_ext: str | None
+    broker_name: str | None
+    original_filename: str | None = None
 
 
 @dataclass
@@ -101,6 +115,8 @@ class EngineResult:
     stats: dict[str, int]
     # txn_id -> top candidate calls (reviewer suggestions for an unmatched trade)
     candidates: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    # txn_id -> no_broker_recordings_day | no_recordings_in_window | no_matching_recording
+    unmatched_reasons: dict[str, str] = field(default_factory=dict)
 
 
 def fold(value: str | None) -> str:
@@ -145,6 +161,34 @@ def _broker_name_matches(txn: TxnView, instr: InstrView) -> bool:
     # missing vowel (Paul Leng / Paul Leung). Keep the threshold high because
     # a broker match is shortlist evidence, not a cosmetic display match.
     return SequenceMatcher(None, txn_key, instr_key).ratio() >= 0.9
+
+
+def _broker_matches(
+    txn: TxnView,
+    broker_name: str | None,
+    broker_ext: str | None,
+    broker_extensions: dict[str, set[str]],
+) -> bool:
+    probe = InstrView(
+        id="",
+        recording_id="",
+        call_started_at=None,
+        call_duration_seconds=None,
+        broker_ext=broker_ext,
+        broker_name=broker_name,
+        stock_code=None,
+        stock_name_raw=None,
+        side="unknown",
+        quantity=None,
+        price=None,
+        price_type="unknown",
+        client_name_raw=None,
+        client_account_raw=None,
+    )
+    if _broker_name_matches(txn, probe):
+        return True
+    exts = broker_extensions.get(txn.broker_code or "")
+    return bool(exts and broker_ext in exts)
 
 
 def _name_similarity(a: str | None, b: str | None) -> float:
@@ -260,6 +304,48 @@ def _time_score(txn: TxnView, instr: InstrView, params: Params) -> float:
     return max(0.2, 1.0 - 0.8 * min(float(frac), 1.0))
 
 
+def _price_in_evidence(price: float | None, evidence: str | None) -> bool:
+    if price is None or not evidence:
+        return False
+    compact = re.sub(r"\D", "", evidence)
+    variants = {
+        re.sub(r"\D", "", f"{price:g}"),
+        re.sub(r"\D", "", f"{price:.2f}"),
+        re.sub(r"\D", "", f"{price:.3f}"),
+    }
+    return any(len(value) >= 2 and value in compact for value in variants)
+
+
+def _conflict_fields(
+    txn: TxnView,
+    instr: InstrView,
+    components: dict[str, float],
+    stock_conflict: bool,
+    side_conflict: bool,
+) -> list[dict[str, Any]]:
+    conflicts: list[dict[str, Any]] = []
+    if stock_conflict:
+        conflicts.append(
+            {"field": "stock", "transaction": txn.stock_code, "recording": instr.stock_code}
+        )
+    if side_conflict:
+        conflicts.append({"field": "side", "transaction": txn.side, "recording": instr.side})
+    for component_name, expected, actual in (
+        ("quantity", txn.quantity, instr.quantity),
+        ("price", txn.price, instr.price),
+        (
+            "client",
+            txn.client_account or txn.client_name,
+            instr.client_account_raw or instr.client_name_raw,
+        ),
+    ):
+        if components[component_name] == 0.0 and expected is not None and actual is not None:
+            conflicts.append(
+                {"field": component_name, "transaction": expected, "recording": actual}
+            )
+    return conflicts
+
+
 def _in_window(txn: TxnView, instr: InstrView, params: Params) -> bool:
     if txn.anchor is None or instr.call_started_at is None:
         return True  # cannot exclude on time — content must carry it
@@ -268,20 +354,26 @@ def _in_window(txn: TxnView, instr: InstrView, params: Params) -> bool:
     return low <= instr.call_started_at <= high
 
 
+def _recording_in_window(txn: TxnView, rec: RecordingView, params: Params) -> bool:
+    if txn.anchor is None or rec.call_started_at is None:
+        return True
+    low = txn.anchor - timedelta(hours=_before_hours(txn, params))
+    high = txn.anchor + timedelta(minutes=params.after_minutes)
+    return low <= rec.call_started_at <= high
+
+
 def score_pair(
     txn: TxnView,
     instr: InstrView,
     params: Params,
     alias_map: dict[str, str],
     broker_extensions: dict[str, set[str]],
-) -> tuple[float, dict[str, Any]] | None:
-    """Weighted score for one candidate pair; None when hard-disqualified."""
+) -> tuple[float, dict[str, Any]]:
+    """Score a pair and retain contradictions for review diagnostics."""
     stock, dq_stock, stock_note = _stock_score(txn, instr, alias_map)
-    if dq_stock:
-        return None
     side, dq_side = _side_score(txn, instr)
-    if dq_side:
-        return None
+    if txn.action_type == "replace" and instr.side == "amend":
+        side, dq_side = 1.0, False
 
     components = {
         "stock": stock,
@@ -307,14 +399,46 @@ def score_pair(
         evidence = "name mismatch" if broker_name_known else "mapping uncertain"
         penalty = f"broker {evidence} (x{NO_BROKER_PENALTY})"
 
+    broker_match = ext_match or broker_name_match
+    high_agreement = [
+        name
+        for name, matched in (
+            ("broker", broker_match),
+            ("time", components["time"] >= 0.7),
+            ("side", components["side"] >= 0.999),
+            ("quantity", components["quantity"] >= 0.9),
+            ("price", components["price"] >= 0.9),
+            ("client", components["client"] >= 0.8),
+        )
+        if matched
+    ]
+    amend_evidence = None
+    if txn.action_type == "replace" and instr.side == "amend":
+        amend_evidence = {
+            "action_match": True,
+            "account_match": components["client"] >= 0.8,
+            "stock_match": components["stock"] >= 0.6,
+            "new_price_match": components["price"] >= 0.9,
+            "old_price_match": _price_in_evidence(txn.previous_price, instr.evidence_quote),
+            "previous_price": txn.previous_price,
+        }
+
     breakdown = {
         "components": {k: round(v, 3) for k, v in components.items()},
         "weights": weights,
         "stock_note": stock_note,
         "window_before_hours": _before_hours(txn, params),
         "broker_name_match": broker_name_match,
+        "broker_match": broker_match,
         "penalty": penalty,
+        "hard_conflicts": [
+            name for name, conflicts in (("stock", dq_stock), ("side", dq_side)) if conflicts
+        ],
+        "high_agreement_fields": high_agreement,
+        "conflict_fields": _conflict_fields(txn, instr, components, dq_stock, dq_side),
     }
+    if amend_evidence is not None:
+        breakdown["amend_evidence"] = amend_evidence
     return round(score, 4), breakdown
 
 
@@ -376,6 +500,7 @@ def run_match(
     params: Params,
     alias_map: dict[str, str],
     broker_extensions: dict[str, set[str]],
+    recording_contexts: list[RecordingView] | None = None,
 ) -> EngineResult:
     # Scope: phone-channel transactions need a recording; unknown channel is
     # treated as phone (conservative) so missing channel data fails loudly.
@@ -385,40 +510,75 @@ def run_match(
         in_scope = list(txns)
     excluded = len(txns) - len(in_scope)
 
-    # Shortlist by broker + time window, score candidates.
-    pairs: list[tuple[float, TxnView, InstrView, dict]] = []
+    # Score every in-window instruction for diagnostics, then apply the
+    # compliance shortlist. Hard-rejected pairs remain visible to reviewers.
+    pairs: list[tuple[float, TxnView, InstrView, dict, bool, int]] = []
+    diagnostic_pairs: list[tuple[float, TxnView, InstrView, dict]] = []
     for txn in in_scope:
         exts = broker_extensions.get(txn.broker_code or "")
         for instr in instrs:
+            if not _in_window(txn, instr, params):
+                continue
             broker_name_match = _broker_name_matches(txn, instr)
-            if (
+            broker_conflict = (
                 _identifying_broker_name(txn.broker_name)
                 and _identifying_broker_name(instr.broker_name)
                 and not broker_name_match
-            ):
-                continue
-            if (
+            ) or (
                 exts
                 and instr.broker_ext is not None
                 and instr.broker_ext not in exts
                 and not broker_name_match
-            ):
+            )
+            score, breakdown = score_pair(txn, instr, params, alias_map, broker_extensions)
+            diagnostic_pairs.append((score, txn, instr, breakdown))
+            hard_conflicts = set(breakdown["hard_conflicts"])
+            stock_review = (
+                "stock" in hard_conflicts and len(breakdown["high_agreement_fields"]) >= 4
+            )
+            amend_evidence = breakdown.get("amend_evidence") or {}
+            amend_evidence_count = sum(
+                bool(amend_evidence.get(field))
+                for field in (
+                    "account_match",
+                    "stock_match",
+                    "new_price_match",
+                    "old_price_match",
+                )
+            )
+            amend_review = bool(amend_evidence.get("action_match")) and amend_evidence_count >= 3
+            force_review = stock_review or amend_review or broker_conflict
+            eligible = (not broker_conflict and not hard_conflicts) or stock_review or amend_review
+            if not eligible:
                 continue
-            if not _in_window(txn, instr, params):
-                continue
-            scored = score_pair(txn, instr, params, alias_map, broker_extensions)
-            if scored is not None:
-                pairs.append((scored[0], txn, instr, scored[1]))
+            if stock_review:
+                breakdown["capped"] = "stock conflict; surfaced because 4+ other fields agree"
+            elif amend_review and broker_conflict:
+                breakdown["capped"] = "amend/replace evidence agrees but broker conflicts"
+            if amend_review:
+                breakdown["priority"] = "amend_replace"
+            pairs.append(
+                (
+                    max(score, params.needs_review) if force_review else score,
+                    txn,
+                    instr,
+                    breakdown,
+                    force_review,
+                    1 if amend_review else 0,
+                )
+            )
 
     # Greedy assignment, best score first.
-    pairs.sort(key=lambda p: p[0], reverse=True)
+    pairs.sort(key=lambda p: (p[5], p[0]), reverse=True)
     assigned_txns: set[str] = set()
     consumed_instrs: set[str] = set()
     matched: list[MatchPair] = []
-    for score, txn, instr, breakdown in pairs:
+    for score, txn, instr, breakdown, force_review, _priority in pairs:
         if txn.id in assigned_txns or score < params.needs_review:
             continue
-        status = "auto_matched" if score >= params.auto_match else "needs_review"
+        status = (
+            "auto_matched" if score >= params.auto_match and not force_review else "needs_review"
+        )
         # Compliance cap: a zeroed component means hard evidence DISAGREES
         # (booked qty far from instructed, limit price way off, client name
         # contradicts) — never auto-match those, whatever the total score.
@@ -446,11 +606,47 @@ def run_match(
 
     # Top candidate calls per unmatched transaction (reviewer suggestions) — from
     # the same scored pairs, including those below the match threshold.
-    by_txn: dict[str, list[tuple[float, InstrView]]] = {}
-    for score, txn, instr, _bd in pairs:
-        by_txn.setdefault(txn.id, []).append((score, instr))
+    by_txn: dict[str, list[tuple[float, InstrView, dict[str, Any]]]] = {}
+    for score, txn, instr, breakdown in diagnostic_pairs:
+        by_txn.setdefault(txn.id, []).append((score, instr, breakdown))
     candidates: dict[str, list[dict[str, Any]]] = {}
+    unmatched_reasons: dict[str, str] = {}
+    txn_by_id = {txn.id: txn for txn in in_scope}
+    contexts = recording_contexts or [
+        RecordingView(
+            id=instr.recording_id,
+            call_started_at=instr.call_started_at,
+            broker_ext=instr.broker_ext,
+            broker_name=instr.broker_name,
+            original_filename=instr.original_filename,
+        )
+        for instr in instrs
+    ]
     for tid in txn_no_recording:
+        txn = txn_by_id[tid]
+        broker_calls = [
+            rec
+            for rec in contexts
+            if _broker_matches(txn, rec.broker_name, rec.broker_ext, broker_extensions)
+        ]
+        txn_day = txn.anchor.astimezone(HK).date() if txn.anchor else None
+        day_calls = [
+            rec
+            for rec in broker_calls
+            if txn_day is None
+            or (
+                rec.call_started_at is not None
+                and rec.call_started_at.astimezone(HK).date() == txn_day
+            )
+        ]
+        window_calls = [rec for rec in broker_calls if _recording_in_window(txn, rec, params)]
+        if not day_calls:
+            unmatched_reasons[tid] = "no_broker_recordings_day"
+        elif not window_calls:
+            unmatched_reasons[tid] = "no_recordings_in_window"
+        else:
+            unmatched_reasons[tid] = "no_matching_recording"
+
         top = sorted(by_txn.get(tid, []), key=lambda x: x[0], reverse=True)[:3]
         candidates[tid] = [
             {
@@ -460,13 +656,47 @@ def run_match(
                 "stock_code": instr.stock_code,
                 "side": instr.side,
                 "quantity": instr.quantity,
+                "price": instr.price,
                 "client": instr.client_name_raw,
+                "broker_name": instr.broker_name,
+                "original_filename": instr.original_filename,
                 "call_started_at": instr.call_started_at.isoformat()
                 if instr.call_started_at
                 else None,
+                "conflicts": breakdown.get("conflict_fields", []),
+                "high_agreement_fields": breakdown.get("high_agreement_fields", []),
             }
-            for score, instr in top
+            for score, instr, breakdown in top
         ]
+        existing_recordings = {candidate["recording_id"] for candidate in candidates[tid]}
+        nearest_calls = sorted(
+            (rec for rec in window_calls if rec.id not in existing_recordings),
+            key=lambda rec: (
+                abs(((txn.anchor or rec.call_started_at) - rec.call_started_at).total_seconds())
+                if rec.call_started_at
+                else float("inf")
+            ),
+        )
+        for rec in nearest_calls[: max(0, 3 - len(candidates[tid]))]:
+            candidates[tid].append(
+                {
+                    "instruction_id": None,
+                    "recording_id": rec.id,
+                    "score": None,
+                    "stock_code": None,
+                    "side": None,
+                    "quantity": None,
+                    "price": None,
+                    "client": None,
+                    "broker_name": rec.broker_name,
+                    "original_filename": rec.original_filename,
+                    "call_started_at": rec.call_started_at.isoformat()
+                    if rec.call_started_at
+                    else None,
+                    "conflicts": [],
+                    "high_agreement_fields": [],
+                }
+            )
 
     stats = {
         "txns_total": len(txns),
@@ -485,4 +715,5 @@ def run_match(
         info_recordings=list(zero_instr_recordings),
         stats=stats,
         candidates=candidates,
+        unmatched_reasons=unmatched_reasons,
     )

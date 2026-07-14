@@ -204,6 +204,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/batches/bulk-rerun-stt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bulk Rerun Stt
+         * @description Re-transcribe every terminal recording in every completed project batch.
+         */
+        post: operations["bulk_rerun_stt_api_batches_bulk_rerun_stt_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/batches/{batch_id}": {
         parameters: {
             query?: never;
@@ -356,8 +376,10 @@ export interface paths {
         put?: never;
         /**
          * Reevaluate Recordings
-         * @description Re-evaluate every completed, transcribed recording in the project (or one
-         *     batch / the attention set) under the current config. Consumes LLM tokens.
+         * @description Re-evaluate transcribed recordings under the current config.
+         *
+         *     Scope can be the whole project, one batch, the attention set, or an explicit
+         *     list of recording ids. Active pipeline rows stay untouched.
          */
         post: operations["reevaluate_recordings_api_recordings_reevaluate_post"];
         delete?: never;
@@ -1641,6 +1663,11 @@ export interface components {
             asr_provider: string;
             /** Asr Model */
             asr_model?: string | null;
+            /**
+             * Auto Retry Limit
+             * @default 2
+             */
+            auto_retry_limit: number;
         };
         /** Body_dry_run_csv_api_txn_imports_csv_dry_run_post */
         Body_dry_run_csv_api_txn_imports_csv_dry_run_post: {
@@ -1680,6 +1707,17 @@ export interface components {
         Body_upload_file_api_batches__batch_id__files_post: {
             /** File */
             file: string;
+        };
+        /** BulkBatchSttRerunOut */
+        BulkBatchSttRerunOut: {
+            /** Queued */
+            queued: number;
+            /** Batches */
+            batches: number;
+            /** Skipped Active */
+            skipped_active: number;
+            /** Skipped No Audio */
+            skipped_no_audio: number;
         };
         /** BulkRerunOut */
         BulkRerunOut: {
@@ -2665,6 +2703,11 @@ export interface components {
              */
             created_at: string;
         };
+        /** RecordingReevaluateIn */
+        RecordingReevaluateIn: {
+            /** Recording Ids */
+            recording_ids?: string[];
+        };
         /** ResultOut */
         ResultOut: {
             /** Criterion Key */
@@ -3596,6 +3639,41 @@ export interface operations {
             };
         };
     };
+    bulk_rerun_stt_api_batches_bulk_rerun_stt_post: {
+        parameters: {
+            query?: {
+                project_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchSttRerunIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkBatchSttRerunOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_batch_api_batches__batch_id__get: {
         parameters: {
             query?: never;
@@ -3905,6 +3983,9 @@ export interface operations {
         parameters: {
             query?: {
                 batch_id?: string | null;
+                status?: string | null;
+                call_date?: string | null;
+                q?: string | null;
                 attention?: boolean;
                 project_id?: string | null;
             };
@@ -3912,7 +3993,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RecordingReevaluateIn"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -3939,6 +4024,7 @@ export interface operations {
             query?: {
                 batch_id?: string | null;
                 status?: string | null;
+                call_date?: string | null;
                 q?: string | null;
                 attention?: boolean;
                 project_id?: string | null;
@@ -5701,6 +5787,7 @@ export interface operations {
             query?: {
                 bucket?: string | null;
                 match_status?: string | null;
+                unmatched_reason?: string | null;
                 page?: number;
                 page_size?: number;
                 project_id?: string | null;
