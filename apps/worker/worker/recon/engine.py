@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from difflib import SequenceMatcher
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -52,6 +52,7 @@ class TxnView:
     broker_name: str | None = None
     action_type: str | None = None
     previous_price: float | None = None
+    source_trade_date: date | None = None
 
 
 @dataclass
@@ -94,9 +95,10 @@ class Params:
     phone_only: bool = True
     quantity_tolerance: float = 0.10
     price_tolerance: float = 0.02
-    # Temporarily disabled: time and broker availability are scoring evidence,
-    # not candidate eligibility gates.
-    enforce_candidate_time_window: bool = False
+    # PDF rule D1: order entry must occur during the call or within three
+    # minutes after it ends. The flag preserves the score-only experiment.
+    post_call_seconds: int = 180
+    enforce_candidate_time_window: bool = True
     classify_unmatched_by_broker: bool = False
 
 
@@ -307,13 +309,12 @@ def _time_score(txn: TxnView, instr: InstrView, params: Params) -> float:
     call_end = instr.call_started_at + timedelta(seconds=instr.call_duration_seconds or 0)
     if instr.call_started_at <= txn.anchor <= call_end:
         return 1.0
-    if txn.anchor > call_end:
-        window = timedelta(hours=max(_before_hours(txn, params), 1))
-        frac = (txn.anchor - call_end) / window
-        return max(0.2, 1.0 - 0.8 * min(float(frac), 1.0))
-    window = timedelta(minutes=max(params.after_minutes, 1))
-    frac = (instr.call_started_at - txn.anchor) / window
-    return max(0.2, 1.0 - 0.8 * min(float(frac), 1.0))
+    if txn.anchor < instr.call_started_at:
+        return 0.0
+    delay_seconds = (txn.anchor - call_end).total_seconds()
+    if delay_seconds > params.post_call_seconds:
+        return 0.0
+    return 1.0 - 0.5 * (delay_seconds / max(params.post_call_seconds, 1))
 
 
 def _price_in_evidence(price: float | None, evidence: str | None) -> bool:
@@ -361,9 +362,12 @@ def _conflict_fields(
 def _in_window(txn: TxnView, instr: InstrView, params: Params) -> bool:
     if txn.anchor is None or instr.call_started_at is None:
         return True  # cannot exclude on time — content must carry it
-    low = txn.anchor - timedelta(hours=_before_hours(txn, params))
-    high = txn.anchor + timedelta(minutes=params.after_minutes)
-    return low <= instr.call_started_at <= high
+    call_end = instr.call_started_at + timedelta(seconds=instr.call_duration_seconds or 0)
+    return (
+        instr.call_started_at
+        <= txn.anchor
+        <= call_end + timedelta(seconds=params.post_call_seconds)
+    )
 
 
 def _recording_in_window(txn: TxnView, rec: RecordingView, params: Params) -> bool:
@@ -440,6 +444,7 @@ def score_pair(
         "weights": weights,
         "stock_note": stock_note,
         "window_before_hours": _before_hours(txn, params),
+        "post_call_seconds": params.post_call_seconds,
         "broker_name_match": broker_name_match,
         "broker_match": broker_match,
         "penalty": penalty,

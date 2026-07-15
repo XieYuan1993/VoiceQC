@@ -11,6 +11,7 @@ the recording fails soft with failed_stage='budget' — retryable tomorrow.
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections import Counter
 from datetime import UTC, datetime, timedelta
@@ -59,6 +60,15 @@ KB_QUERY_CHARS = 2000  # transcript prefix used as the retrieval query (embed to
 TRADE_CHUNK_CHARS = 12_000
 TRADE_CHUNK_OVERLAP_LINES = 2
 TRADE_CANDIDATES_MAX = MAX_SECURITY_CANDIDATES
+TRADE_CONTEXT_WINDOW_MINUTES = 60
+TRADE_CONTEXT_MAX_CALLS = 3
+TRADE_CONTEXT_CHARS = 4_000
+
+_ACCOUNT_MARKERS = re.compile(
+    r"(?:account|acct|a/c|戶口|户口|賬戶|账户|客戶號|客户号)",
+    re.IGNORECASE,
+)
+_SIX_DIGIT_ACCOUNT = re.compile(r"(?<!\d)(\d(?:[\s-]?\d){5})(?![\s-]?\d)")
 
 
 @lru_cache(maxsize=1)
@@ -300,6 +310,73 @@ def _candidate_securities(session, rec: Recording) -> list[tuple[str, str | None
     return [security for security, _count in counts.most_common(TRADE_CANDIDATES_MAX)]
 
 
+def _six_digit_account(text: str | None) -> str | None:
+    """Find a six-digit client account, preferring explicit labels and call openings."""
+    if not text:
+        return None
+    normalized = str(text)
+    for marker in _ACCOUNT_MARKERS.finditer(normalized):
+        match = _SIX_DIGIT_ACCOUNT.search(normalized, marker.start(), marker.end() + 120)
+        if match:
+            return re.sub(r"\D", "", match.group(1))
+    opening = normalized[:2_000]
+    match = _SIX_DIGIT_ACCOUNT.search(opening)
+    return re.sub(r"\D", "", match.group(1)) if match else None
+
+
+def _context_excerpt(text: str) -> str:
+    if len(text) <= TRADE_CONTEXT_CHARS:
+        return text
+    half = TRADE_CONTEXT_CHARS // 2
+    return f"{text[:half]}\n[...context shortened...]\n{text[-half:]}"
+
+
+def _prior_trade_context(session, rec: Recording, account: str | None) -> str | None:
+    """Return earlier calls for the same broker and verified account as read-only context."""
+    if not account or rec.call_started_at is None:
+        return None
+    broker_filter = None
+    if rec.broker_ext:
+        broker_filter = Recording.broker_ext == rec.broker_ext
+    elif rec.broker_name:
+        broker_filter = Recording.broker_name == rec.broker_name
+    if broker_filter is None:
+        return None
+
+    rows = session.execute(
+        select(Recording, Transcript)
+        .join(Transcript, Transcript.recording_id == Recording.id)
+        .where(
+            Recording.project_id == rec.project_id,
+            Recording.id != rec.id,
+            broker_filter,
+            Recording.call_started_at < rec.call_started_at,
+            Recording.call_started_at
+            >= rec.call_started_at - timedelta(minutes=TRADE_CONTEXT_WINDOW_MINUTES),
+        )
+        .order_by(Recording.call_started_at.desc())
+        .limit(12)
+    ).all()
+    matched = []
+    for prior, transcript in rows:
+        prior_account = _six_digit_account(prior.client_account) or _six_digit_account(
+            transcript.full_text
+        )
+        if prior_account == account:
+            matched.append((prior, transcript))
+            if len(matched) >= TRADE_CONTEXT_MAX_CALLS:
+                break
+    if not matched:
+        return None
+    blocks = []
+    for prior, transcript in reversed(matched):
+        blocks.append(
+            f"[Prior call started {prior.call_started_at.isoformat()} | account {account}]\n"
+            f"{_context_excerpt(transcript.full_text)}"
+        )
+    return "\n\n".join(blocks)
+
+
 def build_trade_prompt(
     rec: Recording,
     transcript_text: str,
@@ -308,6 +385,8 @@ def build_trade_prompt(
     *,
     chunk_index: int,
     chunk_count: int,
+    account_hint: str | None = None,
+    prior_context: str | None = None,
 ) -> str:
     candidates = (
         "\n".join(
@@ -316,10 +395,22 @@ def build_trade_prompt(
         or "(none available)"
     )
     started = rec.call_started_at.isoformat() if rec.call_started_at else "unknown"
+    account_note = account_hint or "unknown"
+    prior_section = (
+        f"""
+## Earlier calls for the same broker and verified six-digit account
+This is context only. Use it solely to resolve an omitted stock reference in the CURRENT call.
+Never extract or repeat an instruction that appears only in an earlier call.
+{prior_context}
+"""
+        if prior_context
+        else ""
+    )
     return f"""You extract securities trade instructions from Cantonese, Mandarin, and English call transcripts.
 
 ## Call metadata
 - started: {started} | broker: {rec.broker_name or rec.broker_ext or "unknown"}
+- verified client account hint: {account_note}
 - transcript chunk: {chunk_index}/{chunk_count}
 
 ## Known securities glossary
@@ -330,8 +421,9 @@ These are hints for repairing ASR errors, not proof that an order was spoken. Ne
 instruction merely because a candidate appears here. Codes may be Hong Kong numeric codes or US
 alphabetic tickers such as NVDA, RKLB, BRK.B, or BF-B.
 {candidates}
+{prior_section}
 
-## Transcript
+## CURRENT call transcript
 {transcript_text}
 
 ## Extraction rules
@@ -343,9 +435,32 @@ alphabetic tickers such as NVDA, RKLB, BRK.B, or BF-B.
 - Extract the instructed quantity, not a later filled quantity. Use null when genuinely unavailable.
 - Extract client name/account whenever either speaker states who the instruction belongs to. It does
   not need to be self-identification. Copy the call-level client into each related instruction.
+- A client account is exactly six digits. Prefer a six-digit number near account/戶口/賬戶 wording;
+  a standalone six-digit number near the start is also likely the account. Use the verified hint above
+  when present and copy it into every current-call instruction.
+- If the current call omits a stock because the same client continues a discussion from an earlier
+  call, inherit the stock only from the same-account context above. Do not inherit side, quantity, or
+  price unless the CURRENT call states them.
 - time_in_call_ms must point to the instruction's approximate transcript timestamp.
 - evidence_quote must be verbatim transcript text. Reflect uncertainty in confidence (0-1).
 - If this chunk contains no instruction, return an empty trade_instructions array.
+"""
+
+
+def _add_evaluation_summary_hint(prompt: str, summary: str | None) -> str:
+    """Add the whole-call summary as a constrained field-recovery hint."""
+    if not summary or not summary.strip():
+        return prompt
+    return f"""{prompt}
+
+## Evaluation summary (secondary, model-generated hint)
+{summary.strip()}
+
+Use this summary only to fill a missing field on an instruction that is independently present in
+the CURRENT call transcript. Never create an instruction solely from the summary, and never use it
+to import an instruction from an earlier call. The CURRENT transcript wins on any conflict.
+Evidence must remain a verbatim quote from the CURRENT transcript. If the summary was needed to
+recover a field, cap that instruction's confidence at 0.65.
 """
 
 
@@ -798,9 +913,13 @@ def evaluate(self, recording_id: str) -> None:
         )
         trade_prompts: list[str] = []
         trade_schema = build_trade_response_schema()
+        account_hint = _six_digit_account(transcript.full_text) or _six_digit_account(
+            rec.client_account
+        )
         if trade_module:
             chunks = _trade_chunks(transcript.full_text)
             candidates = _candidate_securities(session, rec)
+            prior_context = _prior_trade_context(session, rec, account_hint)
             trade_prompts = [
                 build_trade_prompt(
                     rec,
@@ -809,6 +928,8 @@ def evaluate(self, recording_id: str) -> None:
                     candidates,
                     chunk_index=index,
                     chunk_count=len(chunks),
+                    account_hint=account_hint,
+                    prior_context=prior_context,
                 )
                 for index, chunk in enumerate(chunks, 1)
             ]
@@ -816,8 +937,10 @@ def evaluate(self, recording_id: str) -> None:
     try:
         adapter = _adapter()
         parsed, in_tok, out_tok = adapter.generate_structured(prompt, schema, model=model)
+        evaluation_summary = str(parsed.get("summary") or "").strip()
         trade_outputs = []
         for trade_prompt in trade_prompts:
+            trade_prompt = _add_evaluation_summary_hint(trade_prompt, evaluation_summary)
             trade_output, trade_in_tok, trade_out_tok = adapter.generate_structured(
                 trade_prompt,
                 trade_schema,
@@ -900,9 +1023,10 @@ def evaluate(self, recording_id: str) -> None:
         caller_name = (
             str(trade_caller.get("name") or "").strip() if isinstance(trade_caller, dict) else ""
         )
-        caller_account = (
+        raw_caller_account = (
             str(trade_caller.get("account") or "").strip() if isinstance(trade_caller, dict) else ""
         )
+        caller_account = _six_digit_account(raw_caller_account) or account_hint or ""
         for idx, item in enumerate(
             (trade_parsed.get("trade_instructions") or []) if trade_module else []
         ):
@@ -912,6 +1036,9 @@ def evaluate(self, recording_id: str) -> None:
             if code is None and item.get("stock_name_raw"):
                 code = aliases.get(str(item["stock_name_raw"]).strip().casefold())
             confidence = _coerce_number(item.get("confidence"))
+            instruction_account = (
+                _six_digit_account(str(item.get("client_account_raw") or "")) or caller_account
+            )
             session.add(
                 TradeInstruction(
                     evaluation_id=evaluation.id,
@@ -926,7 +1053,7 @@ def evaluate(self, recording_id: str) -> None:
                     if item.get("price_type") in PRICE_TYPES
                     else "unknown",
                     client_name_raw=(item.get("client_name_raw") or caller_name or None),
-                    client_account_raw=(item.get("client_account_raw") or caller_account or None),
+                    client_account_raw=instruction_account or None,
                     time_in_call_ms=int(item["time_in_call_ms"])
                     if isinstance(item.get("time_in_call_ms"), int | float)
                     else None,
@@ -1071,7 +1198,7 @@ def evaluate(self, recording_id: str) -> None:
         caller = trade_parsed.get("caller") if trade_module else None
         if isinstance(caller, dict):
             name = str(caller.get("name") or "").strip()
-            account = str(caller.get("account") or "").strip()
+            account = caller_account
             if name:
                 rec.client_name = name[:200]
             if account:

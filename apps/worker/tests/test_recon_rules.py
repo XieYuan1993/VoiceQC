@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 from voiceqa_shared.db_models import Transaction
@@ -77,6 +77,54 @@ def test_reconciliation_uses_order_action_rows_not_trade_exec_fills() -> None:
     assert views[0].action_type == "new"
 
 
+def test_transaction_is_scoped_by_normalized_hkt_action_date() -> None:
+    shifted = order_row(
+        "00000000-0000-0000-0000-000000000099",
+        "ET-SHIFT",
+        "23:00",
+        "ordered",
+        "NewExec",
+    )
+    shifted.trade_date = date(2026, 6, 11)
+    shifted.ordered_at = datetime(2026, 6, 12, 4, 0, tzinfo=HK)
+    shifted.executed_at = shifted.ordered_at
+
+    original_day = _transaction_action_views(
+        [shifted],
+        trade_date_from=date(2026, 6, 11),
+        trade_date_to=date(2026, 6, 11),
+    )
+    normalized_day = _transaction_action_views(
+        [shifted],
+        trade_date_from=date(2026, 6, 12),
+        trade_date_to=date(2026, 6, 12),
+    )
+
+    assert original_day == []
+    assert [view.id for view in normalized_day] == [str(shifted.id)]
+
+
+def test_preloaded_previous_day_without_action_time_does_not_leak() -> None:
+    undated = order_row(
+        "00000000-0000-0000-0000-000000000098",
+        "NO-TIME",
+        "23:00",
+        "ordered",
+        "NewExec",
+    )
+    undated.trade_date = date(2026, 6, 11)
+    undated.ordered_at = None
+    undated.executed_at = None
+
+    views = _transaction_action_views(
+        [undated],
+        trade_date_from=date(2026, 6, 12),
+        trade_date_to=date(2026, 6, 12),
+    )
+
+    assert views == []
+
+
 def test_preset_order_matches_the_pending_record_not_later_newexec() -> None:
     rows = [
         order_row(
@@ -138,7 +186,7 @@ def test_system_generated_rows_are_excluded_from_reconciliation_scope() -> None:
 def test_call_may_precede_order_within_configured_window() -> None:
     transaction = TxnView(
         id="T-late",
-        anchor=hk("10:10"),
+        anchor=hk("10:04"),
         broker_code="AE012",
         client_account="0188",
         client_name="Client",
@@ -169,7 +217,7 @@ def test_call_may_precede_order_within_configured_window() -> None:
         [transaction],
         [instruction],
         [],
-        params=Params(after_minutes=3),
+        params=Params(post_call_seconds=180),
         alias_map={},
         broker_extensions={"AE012": {"2012"}},
     )
@@ -177,7 +225,7 @@ def test_call_may_precede_order_within_configured_window() -> None:
     assert len(result.matched) == 1
 
 
-def test_call_outside_configured_window_is_scored_by_default() -> None:
+def test_call_outside_pdf_window_is_rejected_by_default() -> None:
     transaction = TxnView(
         id="T-window",
         anchor=hk("16:30"),
@@ -216,25 +264,25 @@ def test_call_outside_configured_window_is_scored_by_default() -> None:
         broker_extensions={"AE012": {"2012"}},
     )
 
-    assert len(result.matched) == 1
-    assert result.matched[0].breakdown["components"]["time"] == 0.2
+    assert result.matched == []
 
-    legacy_result = run_match(
+    score_only_result = run_match(
         [transaction],
         [instruction],
         [],
         params=Params(
             before_hours=6,
             after_minutes=15,
-            enforce_candidate_time_window=True,
+            enforce_candidate_time_window=False,
         ),
         alias_map={},
         broker_extensions={"AE012": {"2012"}},
     )
-    assert legacy_result.matched == []
+    assert len(score_only_result.matched) == 1
+    assert score_only_result.matched[0].breakdown["components"]["time"] == 0.0
 
 
-def test_us_ticker_uses_extended_before_window() -> None:
+def test_us_ticker_uses_same_pdf_call_window_after_timezone_conversion() -> None:
     transaction = TxnView(
         id="T-us-window",
         anchor=hk("23:30"),
@@ -273,8 +321,61 @@ def test_us_ticker_uses_extended_before_window() -> None:
         broker_extensions={"AE012": {"2012"}},
     )
 
-    assert len(result.matched) == 1
-    assert result.matched[0].breakdown["window_before_hours"] == 18
+    assert result.matched == []
+
+
+def test_pdf_window_includes_exactly_180_seconds_after_call_end() -> None:
+    instruction = InstrView(
+        id="I-boundary",
+        recording_id="R-boundary",
+        call_started_at=hk("10:00"),
+        call_duration_seconds=120,
+        broker_ext="2012",
+        stock_code="700",
+        stock_name_raw=None,
+        side="buy",
+        quantity=100,
+        price=10,
+        price_type="limit",
+        client_name_raw=None,
+        client_account_raw=None,
+    )
+
+    def transaction(tid: str, anchor: str) -> TxnView:
+        return TxnView(
+            id=tid,
+            anchor=hk(anchor),
+            broker_code="AE012",
+            client_account="0188",
+            client_name="Client",
+            stock_code="700",
+            stock_name=None,
+            side="buy",
+            quantity=100,
+            price=10,
+            channel="phone",
+        )
+
+    at_boundary = run_match(
+        [transaction("T-boundary", "10:05")],
+        [instruction],
+        [],
+        params=Params(post_call_seconds=180),
+        alias_map={},
+        broker_extensions={"AE012": {"2012"}},
+    )
+    outside = run_match(
+        [transaction("T-outside", "10:06")],
+        [instruction],
+        [],
+        params=Params(post_call_seconds=180),
+        alias_map={},
+        broker_extensions={"AE012": {"2012"}},
+    )
+
+    assert len(at_boundary.matched) == 1
+    assert at_boundary.matched[0].breakdown["components"]["time"] == 0.5
+    assert outside.matched == []
 
 
 def test_broker_full_name_can_rescue_extension_mismatch() -> None:

@@ -191,11 +191,15 @@ def _action_view(
         broker_name=_raw_first(raw, "broker_name", "委託人", "委托人") or None,
         action_type=action_type,
         previous_price=(_raw_number(previous.raw, "order_price") if previous is not None else None),
+        source_trade_date=txn.trade_date,
     )
 
 
 def _transaction_action_views(
-    rows: list[Transaction], transaction_filters: dict | None = None
+    rows: list[Transaction],
+    transaction_filters: dict | None = None,
+    trade_date_from: date | None = None,
+    trade_date_to: date | None = None,
 ) -> list[TxnView]:
     grouped: dict[str, list[Transaction]] = {}
     for txn in rows:
@@ -238,7 +242,19 @@ def _transaction_action_views(
             elif status in PRESET_STATUSES:
                 if _passes_transaction_filters(txn, transaction_filters):
                     views.append(_action_view(txn, "preset"))
-    return views
+    if trade_date_from is None:
+        return views
+    trade_date_to = trade_date_to or trade_date_from
+    return [
+        view
+        for view in views
+        if (
+            trade_date_from <= view.anchor.astimezone(HK).date() <= trade_date_to
+            if view.anchor is not None
+            else view.source_trade_date is not None
+            and trade_date_from <= view.source_trade_date <= trade_date_to
+        )
+    ]
 
 
 def _date_range_from_snapshot(trade_date: date, snapshot: dict | None) -> tuple[date, date]:
@@ -264,12 +280,21 @@ def _load_views(
     txn_rows = list(
         session.execute(
             select(Transaction).where(
-                Transaction.trade_date >= trade_date_from,
+                # ET timestamps can belong to the following HKT calendar day.
+                # Preload the preceding source date, then scope by normalized
+                # action time below so the transaction appears in the right run.
+                Transaction.trade_date >= trade_date_from - timedelta(days=1),
                 Transaction.trade_date <= trade_date_to,
             )
         ).scalars()
     )
-    txns = _transaction_action_views(txn_rows, transaction_filters)
+    txns = _transaction_action_views(
+        txn_rows,
+        transaction_filters,
+        trade_date_from,
+        trade_date_to,
+    )
+    scoped_txn_ids = {txn.id for txn in txns}
 
     day_start = datetime.combine(trade_date_from, time.min, tzinfo=HK)
     day_end = datetime.combine(trade_date_to + timedelta(days=1), time.min, tzinfo=HK)
@@ -323,7 +348,9 @@ def _load_views(
         (
             (anchor, txn.stock_code, txn.stock_name)
             for txn in txn_rows
-            if txn.stock_code and (anchor := txn.ordered_at or txn.executed_at) is not None
+            if str(txn.id) in scoped_txn_ids
+            and txn.stock_code
+            and (anchor := txn.ordered_at or txn.executed_at) is not None
         ),
         key=lambda row: row[0],
     )

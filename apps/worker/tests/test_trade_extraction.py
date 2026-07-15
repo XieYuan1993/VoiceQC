@@ -1,7 +1,14 @@
+from datetime import UTC, datetime
+from types import SimpleNamespace
+
 from worker.tasks.evaluate import (
+    _add_evaluation_summary_hint,
     _merge_trade_outputs,
     _normalize_stock_code,
+    _prior_trade_context,
+    _six_digit_account,
     _trade_chunks,
+    build_trade_prompt,
     build_trade_response_schema,
 )
 from worker.trade_normalization import normalize_trade_item, recover_stock_code
@@ -20,6 +27,78 @@ def test_long_trade_transcript_is_chunked_with_overlap() -> None:
 
     assert len(chunks) > 1
     assert set(chunks[0].splitlines()[-2:]) <= set(chunks[1].splitlines())
+
+
+def test_six_digit_account_prefers_account_label_then_call_opening() -> None:
+    assert _six_digit_account("[00:03] broker: \u6236\u53e3 606 248, confirm") == "606248"
+    assert (
+        _six_digit_account("[00:01] customer: 123456 [00:20] broker: buy 100000 shares") == "123456"
+    )
+    assert _six_digit_account("[00:01] broker: phone 91234567") is None
+
+
+def test_prior_call_prompt_is_context_only_for_same_account() -> None:
+    rec = SimpleNamespace(
+        call_started_at=None,
+        broker_name="Broker",
+        broker_ext="2012",
+    )
+    prompt = build_trade_prompt(
+        rec,
+        "[00:10] customer: make it 18 dollars",
+        [],
+        [],
+        chunk_index=1,
+        chunk_count=1,
+        account_hint="606248",
+        prior_context="[Prior call] discussed stock 688",
+    )
+
+    assert "verified client account hint: 606248" in prompt
+    assert "Never extract or repeat an instruction that appears only in an earlier call" in prompt
+    assert "inherit the stock only from the same-account context" in prompt
+
+
+def test_prior_call_context_uses_existing_transcript_while_bulk_reevaluating() -> None:
+    current = SimpleNamespace(
+        id="current",
+        project_id="project",
+        call_started_at=datetime(2026, 5, 13, 10, 20, tzinfo=UTC),
+        broker_ext="2012",
+        broker_name="Broker",
+    )
+    prior = SimpleNamespace(
+        id="prior",
+        status="evaluating",
+        call_started_at=datetime(2026, 5, 13, 10, 5, tzinfo=UTC),
+        client_account=None,
+    )
+    transcript = SimpleNamespace(full_text="[00:02] broker: account 606248, stock 688")
+
+    class Result:
+        def all(self):
+            return [(prior, transcript)]
+
+    class Session:
+        def execute(self, _statement):
+            return Result()
+
+    context = _prior_trade_context(Session(), current, "606248")
+
+    assert context is not None
+    assert "account 606248" in context
+    assert "stock 688" in context
+
+
+def test_evaluation_summary_only_recovers_fields_for_current_instruction() -> None:
+    prompt = _add_evaluation_summary_hint(
+        "CURRENT call contains an existing instruction",
+        "The client instructed a sale of 2,000 shares at 6.06.",
+    )
+
+    assert "secondary, model-generated hint" in prompt
+    assert "Never create an instruction solely from the summary" in prompt
+    assert "cap that instruction's confidence at 0.65" in prompt
 
 
 def test_trade_chunk_outputs_are_merged_and_deduplicated() -> None:
