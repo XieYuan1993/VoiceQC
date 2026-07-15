@@ -37,6 +37,36 @@ def test_six_digit_account_prefers_account_label_then_call_opening() -> None:
     assert _six_digit_account("[00:01] broker: phone 91234567") is None
 
 
+def test_account_extraction_handles_suffix_and_five_digit_asr() -> None:
+    assert (
+        _six_digit_account(
+            "[00:00] customer: 214353888 [00:06] customer: \u8eab\u4efd\u8b49 616017"
+        )
+        == "214353"
+    )
+    assert _six_digit_account("[00:03] customer: \u6236\u53e3 39984") == "039984"
+    assert _six_digit_account("[00:03] customer: 39884, \u6236\u865f") == "039884"
+    assert _six_digit_account("[00:01] customer: 6001220") == "600120"
+    assert _six_digit_account("67091") == "067091"
+    assert (
+        _six_digit_account("[00:24] broker: account number\n[00:27] customer: 20319939988")
+        == "203199"
+    )
+
+
+def test_account_extraction_rejects_identity_and_concatenated_quotes() -> None:
+    assert _six_digit_account("[00:05] customer: \u8eab\u4efd\u8b49 K 215914") is None
+    assert _six_digit_account("[00:08] broker: quote 484485") is None
+    assert _six_digit_account("[00:15] broker: old stock 574574") is None
+    assert _six_digit_account("[01:31] customer: prices 102103 each") is None
+    assert (
+        _six_digit_account(
+            "[00:08] customer: check my account\n[00:25] broker: balance is negative 14000"
+        )
+        is None
+    )
+
+
 def test_prior_call_prompt_is_context_only_for_same_account() -> None:
     rec = SimpleNamespace(
         call_started_at=None,

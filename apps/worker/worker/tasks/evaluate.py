@@ -69,6 +69,24 @@ _ACCOUNT_MARKERS = re.compile(
     re.IGNORECASE,
 )
 _SIX_DIGIT_ACCOUNT = re.compile(r"(?<!\d)(\d(?:[\s-]?\d){5})(?![\s-]?\d)")
+_ACCOUNT_LABEL_MARKERS = re.compile(
+    r"(?:account|acct|a/c|\u6236\u53e3|\u6237\u53e3|\u6236\u865f|\u6237\u53f7|"
+    r"\u8cec\u6236|\u8d26\u6237|\u5ba2\u6236\u865f|\u5ba2\u6237\u53f7)",
+    re.IGNORECASE,
+)
+_IDENTITY_MARKERS = re.compile(
+    r"(?:identity|id\s*(?:no|number)?|\u8eab\u4efd\u8b49|\u8eab\u4efd\u8bc1|"
+    r"\u8eab\u5206\u8b49|\u8eab\u5206\u8bc1)",
+    re.IGNORECASE,
+)
+_LABELLED_ACCOUNT = re.compile(r"(?<!\d)(\d(?:[\s-]?\d){4,5})(?![\s-]?\d)")
+_LABELLED_ACCOUNT_PREFIX = re.compile(r"(?<!\d)(\d{6})(?=\d{4,})")
+_ACCOUNT_WITH_888_SUFFIX = re.compile(
+    r"(?<!\d)(\d(?:[\s-]?\d){5})(?:[\s-]*(?:hyphen|\u9ed1|i)?[\s-]*888)(?!\d)",
+    re.IGNORECASE,
+)
+_SEVEN_DIGIT_ACCOUNT_WITH_REPEAT = re.compile(r"(?<!\d)(\d{7})(?!\d)")
+_TIMESTAMP = re.compile(r"\[(\d{2}):(\d{2})\]")
 
 
 @lru_cache(maxsize=1)
@@ -315,13 +333,69 @@ def _six_digit_account(text: str | None) -> str | None:
     if not text:
         return None
     normalized = str(text)
-    for marker in _ACCOUNT_MARKERS.finditer(normalized):
-        match = _SIX_DIGIT_ACCOUNT.search(normalized, marker.start(), marker.end() + 120)
+    stripped = normalized.strip()
+    if re.fullmatch(r"\d{1,6}", stripped):
+        return stripped.zfill(6)
+
+    # Quam commonly states a six-digit main account followed by the 888
+    # sub-account suffix. Handle both "214353888" and "214353 hyphen 888"
+    # before generic matching sees later identity-card digits.
+    suffix_match = _ACCOUNT_WITH_888_SUFFIX.search(normalized)
+    if suffix_match:
+        return re.sub(r"\D", "", suffix_match.group(1))
+
+    for marker in _ACCOUNT_LABEL_MARKERS.finditer(normalized):
+        line_start = normalized.rfind("\n", 0, marker.start()) + 1
+        line_end = normalized.find("\n", marker.end())
+        if line_end < 0:
+            line_end = len(normalized)
+        before = normalized[max(line_start, marker.start() - 40) : marker.start()]
+        preceding = list(_LABELLED_ACCOUNT.finditer(before))
+        if preceding:
+            return re.sub(r"\D", "", preceding[-1].group(1)).zfill(6)
+        match = _LABELLED_ACCOUNT.search(normalized, marker.end(), min(line_end, marker.end() + 80))
         if match:
-            return re.sub(r"\D", "", match.group(1))
-    opening = normalized[:2_000]
-    match = _SIX_DIGIT_ACCOUNT.search(opening)
-    return re.sub(r"\D", "", match.group(1)) if match else None
+            between = normalized[marker.end() : match.start()]
+            if _IDENTITY_MARKERS.search(between):
+                continue
+            return re.sub(r"\D", "", match.group(1)).zfill(6)
+        prefix = _LABELLED_ACCOUNT_PREFIX.search(
+            normalized,
+            marker.end(),
+            min(len(normalized), marker.end() + 160),
+        )
+        if prefix:
+            return prefix.group(1)
+
+    # ASR sometimes duplicates one spoken digit (600120 -> 6001220). Only
+    # repair an opening seven-digit token when removing either repeated digit
+    # produces the same unambiguous six-digit value.
+    for match in _SEVEN_DIGIT_ACCOUNT_WITH_REPEAT.finditer(normalized[:600]):
+        candidate = match.group(1)
+        repairs = {
+            candidate[:index] + candidate[index + 1 :]
+            for index in range(1, len(candidate))
+            if candidate[index] != "0" and candidate[index] == candidate[index - 1]
+        }
+        if len(repairs) == 1:
+            return repairs.pop()
+
+    # Unlabelled accounts are accepted only near the start of the call. Reject
+    # common ASR quote concatenations such as 484|485, 116|117 and 102|103.
+    for match in _SIX_DIGIT_ACCOUNT.finditer(normalized[:2_000]):
+        line_start = normalized.rfind("\n", 0, match.start()) + 1
+        line = normalized[line_start : match.start()]
+        timestamp = _TIMESTAMP.search(line)
+        if timestamp and int(timestamp.group(1)) * 60 + int(timestamp.group(2)) > 12:
+            continue
+        if _IDENTITY_MARKERS.search(line[-40:]):
+            continue
+        candidate = re.sub(r"\D", "", match.group(1))
+        first, second = int(candidate[:3]), int(candidate[3:])
+        if abs(first - second) <= 2 or int(candidate) % 100 == 0:
+            continue
+        return candidate
+    return None
 
 
 def _context_excerpt(text: str) -> str:
@@ -913,8 +987,10 @@ def evaluate(self, recording_id: str) -> None:
         )
         trade_prompts: list[str] = []
         trade_schema = build_trade_response_schema()
-        account_hint = _six_digit_account(transcript.full_text) or _six_digit_account(
-            rec.client_account
+        # Preserve an audited/backfilled recording account across re-evaluation;
+        # use transcript inference for newly uploaded recordings without one.
+        account_hint = _six_digit_account(rec.client_account) or _six_digit_account(
+            transcript.full_text
         )
         if trade_module:
             chunks = _trade_chunks(transcript.full_text)
