@@ -49,7 +49,19 @@ ALIAS_MAP = {
 }
 
 
-def txn(tid, ordered, broker, account, name, code, side, qty, price, channel="phone"):
+def txn(
+    tid,
+    ordered,
+    broker,
+    account,
+    name,
+    code,
+    side,
+    qty,
+    price,
+    channel="phone",
+    order_group_id=None,
+):
     return TxnView(
         id=tid,
         anchor=hk(ordered),
@@ -62,6 +74,7 @@ def txn(tid, ordered, broker, account, name, code, side, qty, price, channel="ph
         quantity=qty,
         price=price,
         channel=channel,
+        order_group_id=order_group_id,
     )
 
 
@@ -120,6 +133,8 @@ TXNS = [
         channel="online",
     ),
 ]
+TXNS[4].order_group_id = "ORDER-SPLIT"
+TXNS[5].order_group_id = "ORDER-SPLIT"
 
 INSTRS = [
     instr(
@@ -275,6 +290,106 @@ def test_multi_trade_call_and_split_fill():
     assert by_txn["T3"].instr_id != by_txn["T4"].instr_id
     # Split fill: both executions consume the SAME instruction.
     assert by_txn["T5"].instr_id == by_txn["T6"].instr_id == "I4"
+
+
+def test_instruction_is_not_reused_across_unrelated_order_groups():
+    first = TxnView(**{**TXNS[4].__dict__, "order_group_id": "ORDER-A"})
+    second = TxnView(**{**TXNS[5].__dict__, "order_group_id": "ORDER-B"})
+
+    result = run_match(
+        [first, second],
+        [next(item for item in INSTRS if item.id == "I4")],
+        [],
+        params=Params(),
+        alias_map=ALIAS_MAP,
+        broker_extensions=BROKER_EXTENSIONS,
+    )
+
+    assert len(result.matched) == 1
+    assert len(result.txn_no_recording) == 1
+
+
+def test_missing_stock_with_price_and_client_conflicts_is_not_matched():
+    transaction = txn(
+        "T-bad-neutral-stock",
+        "11:32",
+        "AE012",
+        "993868",
+        "LEUNG",
+        "65787",
+        "sell",
+        50000,
+        0.074,
+    )
+    instruction = instr(
+        "I-bad-neutral-stock",
+        "R-bad-neutral-stock",
+        "11:29",
+        "2012",
+        None,
+        None,
+        "sell",
+        50000,
+        102,
+        "limit",
+        account="102103",
+    )
+
+    result = run_match(
+        [transaction],
+        [instruction],
+        [],
+        params=Params(),
+        alias_map={},
+        broker_extensions=BROKER_EXTENSIONS,
+    )
+
+    assert result.matched == []
+    assert result.txn_no_recording == [transaction.id]
+    assert result.candidates[transaction.id][0]["score"] >= Params().needs_review
+    assert {conflict["field"] for conflict in result.candidates[transaction.id][0]["conflicts"]} == {
+        "price",
+        "client",
+    }
+
+
+def test_missing_stock_can_still_surface_when_other_content_agrees():
+    transaction = txn(
+        "T-good-neutral-stock",
+        "11:32",
+        "AE012",
+        "993868",
+        "LEUNG",
+        "65787",
+        "sell",
+        50000,
+        0.074,
+    )
+    instruction = instr(
+        "I-good-neutral-stock",
+        "R-good-neutral-stock",
+        "11:29",
+        "2012",
+        None,
+        None,
+        "sell",
+        50000,
+        0.074,
+        "limit",
+        account="993868",
+    )
+
+    result = run_match(
+        [transaction],
+        [instruction],
+        [],
+        params=Params(),
+        alias_map={},
+        broker_extensions=BROKER_EXTENSIONS,
+    )
+
+    assert len(result.matched) == 1
+    assert result.matched[0].txn_id == transaction.id
 
 
 def test_suspicious_stats_count_recordings_and_instructions_separately():

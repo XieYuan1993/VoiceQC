@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from voiceqa_shared.db_models import Transaction
@@ -225,7 +225,7 @@ def test_call_may_precede_order_within_configured_window() -> None:
     assert len(result.matched) == 1
 
 
-def test_call_outside_pdf_window_is_rejected_by_default() -> None:
+def test_call_outside_pdf_window_is_review_only_when_content_is_strong() -> None:
     transaction = TxnView(
         id="T-window",
         anchor=hk("16:30"),
@@ -264,7 +264,9 @@ def test_call_outside_pdf_window_is_rejected_by_default() -> None:
         broker_extensions={"AE012": {"2012"}},
     )
 
-    assert result.matched == []
+    assert len(result.matched) == 1
+    assert result.matched[0].status == "needs_review"
+    assert "outside PDF D1" in result.matched[0].breakdown["capped"]
 
     score_only_result = run_match(
         [transaction],
@@ -282,7 +284,7 @@ def test_call_outside_pdf_window_is_rejected_by_default() -> None:
     assert score_only_result.matched[0].breakdown["components"]["time"] == 0.0
 
 
-def test_us_ticker_uses_same_pdf_call_window_after_timezone_conversion() -> None:
+def test_us_ticker_outside_pdf_window_is_never_auto_matched() -> None:
     transaction = TxnView(
         id="T-us-window",
         anchor=hk("23:30"),
@@ -321,7 +323,8 @@ def test_us_ticker_uses_same_pdf_call_window_after_timezone_conversion() -> None
         broker_extensions={"AE012": {"2012"}},
     )
 
-    assert result.matched == []
+    assert len(result.matched) == 1
+    assert result.matched[0].status == "needs_review"
 
 
 def test_pdf_window_includes_exactly_180_seconds_after_call_end() -> None:
@@ -364,6 +367,16 @@ def test_pdf_window_includes_exactly_180_seconds_after_call_end() -> None:
         alias_map={},
         broker_extensions={"AE012": {"2012"}},
     )
+    fractional_boundary = transaction("T-fractional-boundary", "10:05")
+    fractional_boundary.anchor += timedelta(seconds=29, milliseconds=500)
+    within_grace = run_match(
+        [fractional_boundary],
+        [instruction],
+        [],
+        params=Params(post_call_seconds=180),
+        alias_map={},
+        broker_extensions={"AE012": {"2012"}},
+    )
     outside = run_match(
         [transaction("T-outside", "10:06")],
         [instruction],
@@ -375,7 +388,23 @@ def test_pdf_window_includes_exactly_180_seconds_after_call_end() -> None:
 
     assert len(at_boundary.matched) == 1
     assert at_boundary.matched[0].breakdown["components"]["time"] == 0.5
-    assert outside.matched == []
+    assert len(within_grace.matched) == 1
+    assert within_grace.matched[0].breakdown["components"]["time"] == 0.5
+    assert "outside PDF D1" not in (within_grace.matched[0].breakdown.get("capped") or "")
+    assert len(outside.matched) == 1
+    assert outside.matched[0].status == "needs_review"
+
+    next_day = transaction("T-next-day", "10:01")
+    next_day.anchor += timedelta(days=1)
+    cross_day = run_match(
+        [next_day],
+        [instruction],
+        [],
+        params=Params(post_call_seconds=180),
+        alias_map={},
+        broker_extensions={"AE012": {"2012"}},
+    )
+    assert cross_day.matched == []
 
 
 def test_broker_full_name_can_rescue_extension_mismatch() -> None:

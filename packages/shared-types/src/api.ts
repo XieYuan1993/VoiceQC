@@ -2579,6 +2579,10 @@ export interface components {
             executed_at: string | null;
             /** Channel */
             channel: string | null;
+            /** Order Status */
+            order_status?: string | null;
+            /** Execution Type */
+            execution_type?: string | null;
         };
         /** RecordingDetail */
         RecordingDetail: {

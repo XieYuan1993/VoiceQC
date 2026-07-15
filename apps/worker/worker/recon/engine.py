@@ -53,6 +53,7 @@ class TxnView:
     action_type: str | None = None
     previous_price: float | None = None
     source_trade_date: date | None = None
+    order_group_id: str | None = None
 
 
 @dataclass
@@ -98,6 +99,7 @@ class Params:
     # PDF rule D1: order entry must occur during the call or within three
     # minutes after it ends. The flag preserves the score-only experiment.
     post_call_seconds: int = 180
+    time_boundary_grace_seconds: float = 30.0
     enforce_candidate_time_window: bool = True
     classify_unmatched_by_broker: bool = False
 
@@ -312,9 +314,10 @@ def _time_score(txn: TxnView, instr: InstrView, params: Params) -> float:
     if txn.anchor < instr.call_started_at:
         return 0.0
     delay_seconds = (txn.anchor - call_end).total_seconds()
-    if delay_seconds > params.post_call_seconds:
+    if delay_seconds > params.post_call_seconds + params.time_boundary_grace_seconds:
         return 0.0
-    return 1.0 - 0.5 * (delay_seconds / max(params.post_call_seconds, 1))
+    scored_delay = min(delay_seconds, params.post_call_seconds)
+    return 1.0 - 0.5 * (scored_delay / max(params.post_call_seconds, 1))
 
 
 def _price_in_evidence(price: float | None, evidence: str | None) -> bool:
@@ -366,7 +369,8 @@ def _in_window(txn: TxnView, instr: InstrView, params: Params) -> bool:
     return (
         instr.call_started_at
         <= txn.anchor
-        <= call_end + timedelta(seconds=params.post_call_seconds)
+        <= call_end
+        + timedelta(seconds=params.post_call_seconds + params.time_boundary_grace_seconds)
     )
 
 
@@ -419,6 +423,7 @@ def score_pair(
     high_agreement = [
         name
         for name, matched in (
+            ("stock", components["stock"] >= 0.999),
             ("broker", broker_match),
             ("time", components["time"] >= 0.7),
             ("side", components["side"] >= 0.999),
@@ -445,6 +450,7 @@ def score_pair(
         "stock_note": stock_note,
         "window_before_hours": _before_hours(txn, params),
         "post_call_seconds": params.post_call_seconds,
+        "time_boundary_grace_seconds": params.time_boundary_grace_seconds,
         "broker_name_match": broker_name_match,
         "broker_match": broker_match,
         "penalty": penalty,
@@ -465,6 +471,61 @@ def score_pair(
     if amend_evidence is not None:
         breakdown["amend_evidence"] = amend_evidence
     return round(score, 4), breakdown
+
+
+def _has_minimum_content_evidence(breakdown: dict[str, Any]) -> bool:
+    """Reject a neutral-stock candidate when the remaining identity evidence conflicts."""
+    if breakdown.get("stock_note") != "no stock evidence (neutral)":
+        return True
+    conflicts = {
+        conflict.get("field")
+        for conflict in breakdown.get("conflict_fields", [])
+        if conflict.get("field") in {"quantity", "price", "client"}
+    }
+    return len(conflicts) < 2
+
+
+def _verified_split_fill(
+    group: list[MatchPair],
+    txn_by_id: dict[str, TxnView],
+    instr: InstrView | None,
+    tolerance: float,
+) -> bool:
+    """Allow one instruction to serve multiple rows only for one proven order group."""
+    if instr is None or not instr.quantity or len(group) < 2:
+        return False
+    txns = [txn_by_id[pair.txn_id] for pair in group]
+    order_groups = {txn.order_group_id for txn in txns}
+    if None in order_groups or len(order_groups) != 1:
+        return False
+    quantities = [txn.quantity for txn in txns]
+    if any(quantity is None for quantity in quantities):
+        return False
+    total = sum(float(quantity) for quantity in quantities if quantity is not None)
+    return abs(total - float(instr.quantity)) <= float(instr.quantity) * tolerance
+
+
+def _prune_unverified_instruction_reuse(
+    matched: list[MatchPair],
+    txns: list[TxnView],
+    instrs: list[InstrView],
+    tolerance: float,
+) -> None:
+    """Keep only the best pair when repeated instruction use is not a split fill."""
+    txn_by_id = {txn.id: txn for txn in txns}
+    instr_by_id = {instr.id: instr for instr in instrs}
+    groups: dict[str, list[MatchPair]] = {}
+    for pair in matched:
+        groups.setdefault(pair.instr_id, []).append(pair)
+
+    keep: set[tuple[str, str]] = set()
+    for instr_id, group in groups.items():
+        if _verified_split_fill(group, txn_by_id, instr_by_id.get(instr_id), tolerance):
+            keep.update((pair.txn_id, pair.instr_id) for pair in group)
+            continue
+        best = max(group, key=lambda pair: pair.score)
+        keep.add((best.txn_id, best.instr_id))
+    matched[:] = [pair for pair in matched if (pair.txn_id, pair.instr_id) in keep]
 
 
 def _lift_split_fills(
@@ -536,14 +597,14 @@ def run_match(
     excluded = len(txns) - len(in_scope)
 
     # Score every loaded instruction, then apply the compliance shortlist.
-    # The legacy time-window gate remains available behind a disabled flag.
+    # D1 is hard for auto-match; exceptionally strong same-day content outside
+    # the window may still surface for mandatory review.
     pairs: list[tuple[float, TxnView, InstrView, dict, bool, int]] = []
     diagnostic_pairs: list[tuple[float, TxnView, InstrView, dict]] = []
     for txn in in_scope:
         exts = _txn_extensions(txn, broker_extensions)
         for instr in instrs:
-            if params.enforce_candidate_time_window and not _in_window(txn, instr, params):
-                continue
+            in_time_window = _in_window(txn, instr, params)
             broker_name_match = _broker_name_matches(txn, instr)
             ext_match = bool(exts and instr.broker_ext in exts)
             broker_conflict = not (ext_match or broker_name_match) and (
@@ -554,8 +615,34 @@ def run_match(
                 or bool(exts and instr.broker_ext is not None)
             )
             score, breakdown = score_pair(txn, instr, params, alias_map, broker_extensions)
+            if not in_time_window:
+                breakdown["conflict_fields"].append(
+                    {
+                        "field": "time",
+                        "transaction": txn.anchor.isoformat() if txn.anchor else None,
+                        "recording": instr.call_started_at.isoformat()
+                        if instr.call_started_at
+                        else None,
+                    }
+                )
             diagnostic_pairs.append((score, txn, instr, breakdown))
             hard_conflicts = set(breakdown["hard_conflicts"])
+            content_agreement = {
+                field for field in breakdown["high_agreement_fields"] if field != "time"
+            }
+            same_hk_day = bool(
+                txn.anchor
+                and instr.call_started_at
+                and txn.anchor.astimezone(HK).date() == instr.call_started_at.astimezone(HK).date()
+            )
+            time_review = (
+                params.enforce_candidate_time_window
+                and not in_time_window
+                and same_hk_day
+                and len(content_agreement) >= 4
+            )
+            if params.enforce_candidate_time_window and not in_time_window and not time_review:
+                continue
             stock_review = (
                 "stock" in hard_conflicts and len(breakdown["high_agreement_fields"]) >= 4
             )
@@ -570,22 +657,33 @@ def run_match(
                 )
             )
             amend_review = bool(amend_evidence.get("action_match")) and amend_evidence_count >= 3
-            force_review = stock_review or amend_review or broker_conflict
+            force_review = stock_review or amend_review or broker_conflict or time_review
             # Broker identity is soft evidence: transfers and assisted orders
             # legitimately cross broker lines. Keep the score penalty, but let
             # sufficiently strong content surface for mandatory review.
             eligible = not hard_conflicts or stock_review or amend_review
+            if eligible and not amend_review and not _has_minimum_content_evidence(breakdown):
+                breakdown["ineligible_reason"] = (
+                    "stock missing and 2+ of quantity, price, client explicitly conflict"
+                )
+                eligible = False
             if not eligible:
                 continue
             if stock_review:
                 breakdown["capped"] = "stock conflict; surfaced because 4+ other fields agree"
             elif broker_conflict:
                 breakdown["capped"] = "broker mismatch; score penalty applied and review required"
+            if time_review:
+                breakdown["capped"] = (
+                    "outside PDF D1 time window; 4+ content fields agree, review required"
+                )
             if amend_review:
                 breakdown["priority"] = "amend_replace"
             pairs.append(
                 (
-                    max(score, params.needs_review) if stock_review or amend_review else score,
+                    max(score, params.needs_review)
+                    if stock_review or amend_review or time_review
+                    else score,
                     txn,
                     instr,
                     breakdown,
@@ -625,7 +723,41 @@ def run_match(
         assigned_txns.add(txn.id)
         consumed_instrs.add(instr.id)
 
+    _prune_unverified_instruction_reuse(
+        matched,
+        in_scope,
+        instrs,
+        params.quantity_tolerance,
+    )
     _lift_split_fills(matched, in_scope, instrs, params)
+    assigned_txns = {pair.txn_id for pair in matched}
+    consumed_instrs = {pair.instr_id for pair in matched}
+
+    # Reassign transactions freed by duplicate pruning to unused instructions.
+    for score, txn, instr, breakdown, force_review, _priority in pairs:
+        if txn.id in assigned_txns or instr.id in consumed_instrs or score < params.needs_review:
+            continue
+        status = (
+            "auto_matched" if score >= params.auto_match and not force_review else "needs_review"
+        )
+        zeroed = [
+            key for key in ("quantity", "price", "client") if breakdown["components"][key] == 0.0
+        ]
+        if status == "auto_matched" and zeroed:
+            status = "needs_review"
+            breakdown["capped"] = f"material discrepancy in {', '.join(zeroed)}"
+        matched.append(
+            MatchPair(
+                txn_id=txn.id,
+                instr_id=instr.id,
+                recording_id=instr.recording_id,
+                score=score,
+                status=status,
+                breakdown=breakdown,
+            )
+        )
+        assigned_txns.add(txn.id)
+        consumed_instrs.add(instr.id)
 
     txn_no_recording = [t.id for t in in_scope if t.id not in assigned_txns]
     suspicious = [i.id for i in instrs if i.id not in consumed_instrs]

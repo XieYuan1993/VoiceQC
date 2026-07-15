@@ -192,6 +192,7 @@ def _action_view(
         action_type=action_type,
         previous_price=(_raw_number(previous.raw, "order_price") if previous is not None else None),
         source_trade_date=txn.trade_date,
+        order_group_id=_base_order_id(txn),
     )
 
 
@@ -316,6 +317,15 @@ def _load_views(
         .scalars()
         .all()
     )
+    recordings = [
+        recording
+        for recording in recordings
+        if recording.call_started_at is not None
+        and recording.call_started_at < day_end
+        and recording.call_started_at
+        + timedelta(seconds=float(recording.duration_seconds or 0) + params.post_call_seconds)
+        >= day_start
+    ]
     recordings = _deduplicate_recordings_by_audio(recordings)
 
     # Latest completed evaluation per recording carries the instructions.

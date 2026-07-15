@@ -5,7 +5,8 @@ from __future__ import annotations
 import csv
 import io
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
@@ -51,6 +52,8 @@ PARAM_KEYS = (
     "recon.phone_only",
     "recon.transaction_filters",
 )
+HK = ZoneInfo("Asia/Hong_Kong")
+ACTIVE_RECORDING_STATUSES = ("uploaded", "converting", "transcribing", "evaluating")
 
 
 def _run_out(r: ReconRun) -> ReconRunOut:
@@ -125,6 +128,26 @@ async def create_run(
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY, "trade_date_to must be >= trade_date_from"
         )
+    day_start = datetime.combine(trade_date_from, time.min, tzinfo=HK)
+    day_end = datetime.combine(trade_date_to + timedelta(days=1), time.min, tzinfo=HK)
+    active_recordings = (
+        await session.execute(
+            select(func.count())
+            .select_from(Recording)
+            .where(
+                Recording.project_id == project_id,
+                Recording.call_started_at >= day_start,
+                Recording.call_started_at < day_end,
+                Recording.status.in_(ACTIVE_RECORDING_STATUSES),
+            )
+        )
+    ).scalar_one()
+    if active_recordings:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"{active_recordings} recordings in this date range are still processing; "
+            "wait for evaluation to finish before reconciliation",
+        )
     run = await build_recon_run(
         session,
         project_id,
@@ -184,6 +207,17 @@ async def _item_out(session: AsyncSession, item: ReconItem) -> ReconItemOut:
         if item.trade_instruction_id
         else None
     )
+    txn_raw = txn.raw if txn is not None and isinstance(txn.raw, dict) else {}
+
+    def raw_number(key: str, fallback) -> float | None:
+        value = txn_raw.get(key)
+        if value not in (None, ""):
+            try:
+                return float(str(value).replace(",", ""))
+            except ValueError:
+                pass
+        return float(fallback) if fallback is not None else None
+
     return ReconItemOut(
         id=item.id,
         item_type=item.item_type,
@@ -202,11 +236,13 @@ async def _item_out(session: AsyncSession, item: ReconItem) -> ReconItemOut:
             stock_code=txn.stock_code,
             stock_name=txn.stock_name,
             side=txn.side,
-            quantity=float(txn.quantity) if txn.quantity is not None else None,
-            price=float(txn.price) if txn.price is not None else None,
+            quantity=raw_number("order_quantity", txn.quantity),
+            price=raw_number("order_price", txn.price),
             ordered_at=txn.ordered_at,
             executed_at=txn.executed_at,
             channel=txn.channel,
+            order_status=str(txn_raw.get("order_status") or "").strip() or None,
+            execution_type=str(txn_raw.get("execution_type") or "").strip() or None,
         )
         if txn
         else None,

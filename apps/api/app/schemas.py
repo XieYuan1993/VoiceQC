@@ -638,6 +638,8 @@ class ReconTxnBrief(BaseModel):
     ordered_at: datetime | None
     executed_at: datetime | None
     channel: str | None
+    order_status: str | None = None
+    execution_type: str | None = None
 
 
 class ReconRecordingBrief(BaseModel):

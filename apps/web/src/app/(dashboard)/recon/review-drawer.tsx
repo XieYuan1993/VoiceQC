@@ -620,6 +620,25 @@ export function ReviewDrawer({
               )
             }
           />
+          <CompareRow
+            label="Order"
+            score={undefined}
+            left={
+              txn ? (
+                <>
+                  <span className="block text-xs">
+                    status {txn.order_status ?? "unknown"}
+                  </span>
+                  <span className="block text-xs">
+                    execution {txn.execution_type ?? "none (preset/status row)"}
+                  </span>
+                </>
+              ) : (
+                "鈥?"
+              )
+            }
+            right="鈥?"
+          />
         </div>
 
         <p className="text-xs text-muted-foreground">
