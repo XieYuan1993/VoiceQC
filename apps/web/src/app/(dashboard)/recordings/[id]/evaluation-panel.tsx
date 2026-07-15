@@ -77,6 +77,18 @@ const SIDE_BADGE: Record<string, BadgeProps["variant"]> = {
   cancel: "neutral",
 };
 
+const INTERACTION_LABEL: Record<string, string> = {
+  order_instruction: "Order",
+  notification: "Notification",
+  inquiry: "Inquiry",
+};
+
+const INTERACTION_BADGE: Record<string, BadgeProps["variant"]> = {
+  order_instruction: "success",
+  notification: "info",
+  inquiry: "neutral",
+};
+
 const SENTIMENT_BADGE: Record<string, BadgeProps["variant"]> = {
   positive: "success",
   neutral: "neutral",
@@ -914,6 +926,7 @@ function TradesTable({ trades, onJump }: { trades: Trade[]; onJump: (ms: number)
           <TableHead className="w-8">#</TableHead>
           <TableHead>Stock</TableHead>
           <TableHead>Side</TableHead>
+          <TableHead>Type</TableHead>
           <TableHead className="text-right">Quantity</TableHead>
           <TableHead className="text-right">Price</TableHead>
           <TableHead>Client</TableHead>
@@ -939,6 +952,11 @@ function TradesTable({ trades, onJump }: { trades: Trade[]; onJump: (ms: number)
                 </TableCell>
                 <TableCell>
                   <Badge variant={SIDE_BADGE[t.side] ?? "neutral"}>{t.side}</Badge>
+                </TableCell>
+                <TableCell>
+                  <Badge variant={INTERACTION_BADGE[t.interaction_type] ?? "neutral"}>
+                    {INTERACTION_LABEL[t.interaction_type] ?? t.interaction_type}
+                  </Badge>
                 </TableCell>
                 <TableCell className="text-right tabular-nums">
                   {formatNumber(t.quantity)}
@@ -996,7 +1014,7 @@ function TradesTable({ trades, onJump }: { trades: Trade[]; onJump: (ms: number)
               </TableRow>
               {isOpen && t.evidence_quote && (
                 <TableRow className="hover:bg-transparent">
-                  <TableCell colSpan={9} className="bg-muted/30 py-2">
+                  <TableCell colSpan={10} className="bg-muted/30 py-2">
                     <p className="text-xs italic text-muted-foreground">
                       &ldquo;{t.evidence_quote}&rdquo;
                     </p>

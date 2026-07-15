@@ -342,6 +342,7 @@ class TradeOut(BaseModel):
     seq: int
     stock_code: str | None
     stock_name_raw: str | None
+    interaction_type: str
     side: str
     quantity: float | None
     price: float | None

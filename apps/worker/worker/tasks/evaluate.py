@@ -51,6 +51,7 @@ from worker.trade_normalization import (
 
 SIDES = {"buy", "sell", "amend", "cancel", "unknown"}
 PRICE_TYPES = {"market", "limit", "unknown"}
+TRADE_INTERACTION_TYPES = {"order_instruction", "notification", "inquiry"}
 SEVERITIES = {"info", "warning", "critical"}
 CHANNELS = {"broker", "customer", "mixed"}
 SENTIMENTS = {"positive", "neutral", "negative", "frustrated", "mixed"}
@@ -480,7 +481,7 @@ Never extract or repeat an instruction that appears only in an earlier call.
         if prior_context
         else ""
     )
-    return f"""You extract securities trade instructions from Cantonese, Mandarin, and English call transcripts.
+    return f"""You extract and classify securities trade discussions from Cantonese, Mandarin, and English call transcripts.
 
 ## Call metadata
 - started: {started} | broker: {rec.broker_name or rec.broker_ext or "unknown"}
@@ -501,7 +502,18 @@ alphabetic tickers such as NVDA, RKLB, BRK.B, or BF-B.
 {transcript_text}
 
 ## Extraction rules
-- Extract EVERY new, amend, cancel, or conditional/preset instruction in this chunk, in speaking order.
+- Extract EVERY trade-related event in this chunk, in speaking order, and classify interaction_type:
+  - order_instruction: the client gives, authorizes, confirms, amends, or cancels an order in this
+    call. A broker proposal counts only when the client clearly authorizes it.
+  - notification: either speaker reports or acknowledges an order that was already placed, filled,
+    partially filled, rejected, cancelled, expired, or otherwise processed before this discussion.
+  - inquiry: the client asks about an existing order, execution, position, price, or status without
+    giving a new instruction or authorizing a change.
+- Grammatical tense and conversational purpose matter. Mentioning complete trade details is not an
+  order_instruction when the speakers are only reporting or asking about an earlier transaction.
+- A call may contain several interaction types. Classify each event independently. If an inquiry or
+  notification leads to a new authorized order/change, emit the earlier event and the later
+  order_instruction separately at their respective timestamps.
 - Keep repeated orders as separate instructions when they occur at different timestamps.
 - Resolve fast or concatenated speech using the glossary, candidate list, quantity, price, and context.
 - Preserve US alphabetic tickers. Normalize Hong Kong numeric codes by removing leading zeros.
@@ -517,7 +529,7 @@ alphabetic tickers such as NVDA, RKLB, BRK.B, or BF-B.
   price unless the CURRENT call states them.
 - time_in_call_ms must point to the instruction's approximate transcript timestamp.
 - evidence_quote must be verbatim transcript text. Reflect uncertainty in confidence (0-1).
-- If this chunk contains no instruction, return an empty trade_instructions array.
+- If this chunk contains no trade-related event, return an empty trade_instructions array.
 """
 
 
@@ -559,6 +571,7 @@ def _merge_trade_outputs(
             key = (
                 _normalize_stock_code(item.get("stock_code")),
                 str(item.get("stock_name_raw") or "").strip().casefold(),
+                item.get("interaction_type"),
                 item.get("side"),
                 _coerce_number(item.get("quantity")),
                 _coerce_number(item.get("price")),
@@ -599,6 +612,10 @@ def build_trade_response_schema() -> dict[str, Any]:
                     "properties": {
                         "stock_code": {"type": "string", "nullable": True},
                         "stock_name_raw": {"type": "string", "nullable": True},
+                        "interaction_type": {
+                            "type": "string",
+                            "enum": sorted(TRADE_INTERACTION_TYPES),
+                        },
                         "side": {"type": "string", "enum": sorted(SIDES)},
                         "quantity": {"type": "number", "nullable": True},
                         "price": {"type": "number", "nullable": True},
@@ -609,7 +626,7 @@ def build_trade_response_schema() -> dict[str, Any]:
                         "confidence": {"type": "number"},
                         "evidence_quote": {"type": "string", "nullable": True},
                     },
-                    "required": ["side", "price_type", "confidence"],
+                    "required": ["interaction_type", "side", "price_type", "confidence"],
                 },
             },
         },
@@ -1112,6 +1129,9 @@ def evaluate(self, recording_id: str) -> None:
             if code is None and item.get("stock_name_raw"):
                 code = aliases.get(str(item["stock_name_raw"]).strip().casefold())
             confidence = _coerce_number(item.get("confidence"))
+            interaction_type = item.get("interaction_type")
+            if interaction_type not in TRADE_INTERACTION_TYPES:
+                interaction_type = "order_instruction"
             instruction_account = (
                 _six_digit_account(str(item.get("client_account_raw") or "")) or caller_account
             )
@@ -1134,6 +1154,7 @@ def evaluate(self, recording_id: str) -> None:
                     if isinstance(item.get("time_in_call_ms"), int | float)
                     else None,
                     confidence=min(1.0, max(0.0, confidence)) if confidence is not None else None,
+                    extra_fields={"interaction_type": interaction_type},
                     evidence_quote=(str(item.get("evidence_quote") or "")[:500] or None),
                 )
             )

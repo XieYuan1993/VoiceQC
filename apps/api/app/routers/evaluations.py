@@ -53,11 +53,13 @@ def _result_out(r: EvaluationResult) -> ResultOut:
 
 
 def _trade_out(t: TradeInstruction) -> TradeOut:
+    extra_fields = t.extra_fields if isinstance(t.extra_fields, dict) else {}
     return TradeOut(
         id=t.id,
         seq=t.seq,
         stock_code=t.stock_code,
         stock_name_raw=t.stock_name_raw,
+        interaction_type=str(extra_fields.get("interaction_type") or "order_instruction"),
         side=t.side,
         quantity=float(t.quantity) if t.quantity is not None else None,
         price=float(t.price) if t.price is not None else None,

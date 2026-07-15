@@ -135,6 +135,7 @@ def test_trade_chunk_outputs_are_merged_and_deduplicated() -> None:
     instruction = {
         "stock_code": "NVDA",
         "stock_name_raw": None,
+        "interaction_type": "order_instruction",
         "side": "buy",
         "quantity": 100,
         "price": 150,
@@ -164,6 +165,30 @@ def test_dedicated_trade_schema_is_small_and_trade_only() -> None:
 
     assert set(schema["properties"]) == {"caller", "trade_instructions"}
     assert schema["required"] == ["caller", "trade_instructions"]
+    item_schema = schema["properties"]["trade_instructions"]["items"]
+    assert item_schema["properties"]["interaction_type"]["enum"] == [
+        "inquiry",
+        "notification",
+        "order_instruction",
+    ]
+    assert "interaction_type" in item_schema["required"]
+
+
+def test_trade_prompt_distinguishes_orders_from_notifications_and_inquiries() -> None:
+    rec = SimpleNamespace(call_started_at=None, broker_name="Broker", broker_ext="2012")
+
+    prompt = build_trade_prompt(
+        rec,
+        "[00:01] broker: your earlier order was filled",
+        [],
+        [],
+        chunk_index=1,
+        chunk_count=1,
+    )
+
+    assert "notification" in prompt
+    assert "inquiry" in prompt
+    assert "only reporting or asking about an earlier transaction" in prompt
 
 
 def test_provider_aliases_are_normalized_to_canonical_trade_fields() -> None:

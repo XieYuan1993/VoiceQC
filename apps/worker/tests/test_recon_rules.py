@@ -3,12 +3,25 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from voiceqa_shared.db_models import Transaction
+from voiceqa_shared.db_models import TradeInstruction, Transaction
 from worker.recon.engine import InstrView, Params, TxnView, run_match
-from worker.tasks.recon import _transaction_action_views
+from worker.tasks.recon import _is_match_eligible_instruction, _transaction_action_views
 
 HK = ZoneInfo("Asia/Hong_Kong")
 D = "2026-06-11"
+
+
+def test_only_order_interactions_are_match_eligible() -> None:
+    assert _is_match_eligible_instruction(TradeInstruction(extra_fields={}))
+    assert _is_match_eligible_instruction(
+        TradeInstruction(extra_fields={"interaction_type": "order_instruction"})
+    )
+    assert not _is_match_eligible_instruction(
+        TradeInstruction(extra_fields={"interaction_type": "notification"})
+    )
+    assert not _is_match_eligible_instruction(
+        TradeInstruction(extra_fields={"interaction_type": "inquiry"})
+    )
 PRESET_CONDITION = "待報\uff08條件單\uff09"
 
 

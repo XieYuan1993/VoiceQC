@@ -416,6 +416,8 @@ def _load_views(
             rec = rec_by_id.get(ti.recording_id)
             if rec is None:
                 continue
+            if not _is_match_eligible_instruction(ti):
+                continue
             candidates = candidates_by_recording.get(rec.id)
             if candidates is None:
                 low = rec.call_started_at - timedelta(minutes=15)
@@ -477,6 +479,12 @@ def _load_views(
         for rec in recordings
     ]
     return txns, instrs, zero_instr, recovered_stock_count, recording_contexts
+
+
+def _is_match_eligible_instruction(instruction: TradeInstruction) -> bool:
+    """Keep historical rows eligible while excluding classified non-order discussions."""
+    extra_fields = instruction.extra_fields if isinstance(instruction.extra_fields, dict) else {}
+    return extra_fields.get("interaction_type", "order_instruction") == "order_instruction"
 
 
 def _deduplicate_recordings_by_audio(recordings):

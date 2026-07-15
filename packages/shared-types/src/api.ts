@@ -3056,6 +3056,8 @@ export interface components {
             stock_code: string | null;
             /** Stock Name Raw */
             stock_name_raw: string | null;
+            /** Interaction Type */
+            interaction_type: string;
             /** Side */
             side: string;
             /** Quantity */
