@@ -137,7 +137,6 @@ VALIDATORS: dict[str, Any] = {
     "recon.thresholds": _v_recon_thresholds,
     "recon.time_window": _v_time_window,
     "recon.phone_only": _v_bool,
-    "recon.transaction_filters": _v_recon_transaction_filters,
 }
 
 
@@ -149,7 +148,12 @@ async def list_settings(
 ) -> list[SettingOut]:
     rows = (
         await session.execute(
-            select(AppSetting).where(AppSetting.project_id == project_id).order_by(AppSetting.key)
+            select(AppSetting)
+            .where(
+                AppSetting.project_id == project_id,
+                AppSetting.key != "recon.transaction_filters",
+            )
+            .order_by(AppSetting.key)
         )
     ).scalars().all()
     return [SettingOut(key=r.key, value=r.value, updated_at=r.updated_at) for r in rows]

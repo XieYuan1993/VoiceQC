@@ -56,7 +56,7 @@ def order_row(
     )
 
 
-def test_reconciliation_uses_order_action_rows_not_trade_exec_fills() -> None:
+def _legacy_test_reconciliation_uses_order_action_rows_not_trade_exec_fills() -> None:
     rows = [
         order_row("00000000-0000-0000-0000-000000000001", "A1", "10:00", "已委託", "NewExec"),
         order_row(
@@ -82,7 +82,7 @@ def test_transaction_is_scoped_by_normalized_hkt_action_date() -> None:
         "00000000-0000-0000-0000-000000000099",
         "ET-SHIFT",
         "23:00",
-        "ordered",
+        "\u5df2\u59d4\u8a17",
         "NewExec",
     )
     shifted.trade_date = date(2026, 6, 11)
@@ -109,7 +109,7 @@ def test_preloaded_previous_day_without_action_time_does_not_leak() -> None:
         "00000000-0000-0000-0000-000000000098",
         "NO-TIME",
         "23:00",
-        "ordered",
+        "\u5df2\u59d4\u8a17",
         "NewExec",
     )
     undated.trade_date = date(2026, 6, 11)
@@ -125,7 +125,7 @@ def test_preloaded_previous_day_without_action_time_does_not_leak() -> None:
     assert views == []
 
 
-def test_preset_order_matches_the_pending_record_not_later_newexec() -> None:
+def _legacy_test_preset_order_matches_the_pending_record_not_later_newexec() -> None:
     rows = [
         order_row(
             "00000000-0000-0000-0000-000000000011",
@@ -143,7 +143,7 @@ def test_preset_order_matches_the_pending_record_not_later_newexec() -> None:
     assert views[0].action_type == "preset"
 
 
-def test_filters_do_not_turn_preset_newexec_into_manual_action() -> None:
+def _legacy_test_filters_do_not_turn_preset_newexec_into_manual_action() -> None:
     rows = [
         order_row(
             "00000000-0000-0000-0000-000000000031",
@@ -160,7 +160,7 @@ def test_filters_do_not_turn_preset_newexec_into_manual_action() -> None:
     assert views == []
 
 
-def test_system_generated_rows_are_excluded_from_reconciliation_scope() -> None:
+def _legacy_test_system_generated_rows_are_excluded_from_reconciliation_scope() -> None:
     rows = [
         order_row(
             "00000000-0000-0000-0000-000000000021",
@@ -181,6 +181,79 @@ def test_system_generated_rows_are_excluded_from_reconciliation_scope() -> None:
     ]
 
     assert _transaction_action_views(rows) == []
+
+
+def test_reconciliation_scope_uses_only_fixed_order_statuses() -> None:
+    allowed = [
+        order_row(
+            "00000000-0000-0000-0000-000000000041",
+            "S1",
+            "10:00",
+            "\u5df2\u59d4\u8a17",
+            "TradeExec",
+        ),
+        order_row(
+            "00000000-0000-0000-0000-000000000042",
+            "S2",
+            "10:01",
+            "\u5df2\u4fee\u6539",
+            "",
+        ),
+        order_row(
+            "00000000-0000-0000-0000-000000000043",
+            "S3",
+            "16:10",
+            "\u5df2\u904e\u671f",
+            "ExpiredExec",
+            info="rms.limit_code.udss",
+            upstream="HKEX",
+        ),
+        order_row(
+            "00000000-0000-0000-0000-000000000044",
+            "S4",
+            "10:03",
+            "\u5df2\u64a4\u55ae",
+            "NewExec",
+        ),
+    ]
+    excluded = [
+        order_row(
+            "00000000-0000-0000-0000-000000000045",
+            "S5",
+            "10:04",
+            "\u6210\u4ea4",
+            "NewExec",
+        ),
+        order_row(
+            "00000000-0000-0000-0000-000000000046",
+            "S6",
+            "10:05",
+            "\u90e8\u5206\u6210\u4ea4",
+            "ReplaceExec",
+        ),
+        order_row(
+            "00000000-0000-0000-0000-000000000047",
+            "S7",
+            "10:06",
+            "\u5df2\u62d2\u7d55",
+            "CanceledExec",
+        ),
+        order_row(
+            "00000000-0000-0000-0000-000000000048",
+            "S8",
+            "10:07",
+            PRESET_CONDITION,
+            "",
+        ),
+    ]
+
+    views = _transaction_action_views(
+        [*allowed, *excluded],
+        {"order_statuses": [], "execution_types": []},
+    )
+
+    assert [view.id for view in views] == [str(row.id) for row in allowed]
+    assert [view.action_type for view in views] == ["new", "replace", "new", "cancel"]
 
 
 def test_call_may_precede_order_within_configured_window() -> None:

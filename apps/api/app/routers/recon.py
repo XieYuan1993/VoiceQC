@@ -22,6 +22,7 @@ from voiceqa_shared.db_models import (
     Transaction,
     User,
 )
+from voiceqa_shared.recon_scope import RECON_ORDER_STATUSES
 
 from app import queue
 from app.db import get_session
@@ -50,7 +51,6 @@ PARAM_KEYS = (
     "recon.thresholds",
     "recon.time_window",
     "recon.phone_only",
-    "recon.transaction_filters",
 )
 HK = ZoneInfo("Asia/Hong_Kong")
 ACTIVE_RECORDING_STATUSES = ("uploaded", "converting", "transcribing", "evaluating")
@@ -79,7 +79,7 @@ async def build_recon_run(
     project_id,
     trade_date,
     started_by=None,
-    transaction_filters: dict | None = None,
+    _ignored_transaction_filters: dict | None = None,
     trade_date_to=None,
 ) -> ReconRun:
     """Create (flush, not commit/queue) a recon run snapshotting the project's
@@ -102,9 +102,7 @@ async def build_recon_run(
         "thresholds": settings_rows.get("recon.thresholds"),
         "time_window": settings_rows.get("recon.time_window"),
         "phone_only": settings_rows.get("recon.phone_only", True),
-        "transaction_filters": transaction_filters
-        if transaction_filters is not None
-        else settings_rows.get("recon.transaction_filters"),
+        "transaction_filters": {"order_statuses": list(RECON_ORDER_STATUSES)},
     }
     run = ReconRun(trade_date=trade_date, params_snapshot=snapshot, started_by=started_by)
     session.add(run)

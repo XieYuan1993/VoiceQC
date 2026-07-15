@@ -28,6 +28,7 @@ from voiceqa_shared.db_models import (
     TradeInstruction,
     Transaction,
 )
+from voiceqa_shared.recon_scope import RECON_ORDER_STATUSES, recon_action_for_status
 
 from worker.celery_app import app
 from worker.db import SessionLocal
@@ -47,7 +48,6 @@ _RECON_PARAM_KEYS = (
     "recon.thresholds",
     "recon.time_window",
     "recon.phone_only",
-    "recon.transaction_filters",
 )
 
 
@@ -80,7 +80,7 @@ def enqueue_recon_run(session, trade_date) -> str | None:
         "thresholds": rows.get("recon.thresholds"),
         "time_window": rows.get("recon.time_window"),
         "phone_only": rows.get("recon.phone_only", True),
-        "transaction_filters": rows.get("recon.transaction_filters"),
+        "transaction_filters": {"order_statuses": list(RECON_ORDER_STATUSES)},
     }
     run = ReconRun(trade_date=trade_date, params_snapshot=snapshot)
     session.add(run)
@@ -121,19 +121,9 @@ def _raw_first(raw, *keys: str) -> str:
     return ""
 
 
-def _passes_transaction_filters(txn: Transaction, filters: dict | None) -> bool:
-    if not isinstance(filters, dict):
-        return True
-    order_statuses = filters.get("order_statuses")
-    execution_types = filters.get("execution_types")
-    if isinstance(order_statuses, list) and _raw_value(txn.raw, "order_status") not in {
-        str(v) for v in order_statuses
-    }:
-        return False
-    return not (
-        isinstance(execution_types, list)
-        and _raw_value(txn.raw, "execution_type") not in {str(v) for v in execution_types}
-    )
+def _passes_transaction_filters(txn: Transaction, _ignored_filters: dict | None) -> bool:
+    """Compatibility shim: only the fixed order-status scope is authoritative."""
+    return recon_action_for_status(_raw_value(txn.raw, "order_status")) is not None
 
 
 def _base_order_id(txn: Transaction) -> str:
@@ -196,7 +186,7 @@ def _action_view(
     )
 
 
-def _transaction_action_views(
+def _legacy_transaction_action_views(
     rows: list[Transaction],
     transaction_filters: dict | None = None,
     trade_date_from: date | None = None,
@@ -243,6 +233,53 @@ def _transaction_action_views(
             elif status in PRESET_STATUSES:
                 if _passes_transaction_filters(txn, transaction_filters):
                     views.append(_action_view(txn, "preset"))
+    if trade_date_from is None:
+        return views
+    trade_date_to = trade_date_to or trade_date_from
+    return [
+        view
+        for view in views
+        if (
+            trade_date_from <= view.anchor.astimezone(HK).date() <= trade_date_to
+            if view.anchor is not None
+            else view.source_trade_date is not None
+            and trade_date_from <= view.source_trade_date <= trade_date_to
+        )
+    ]
+
+
+def _transaction_action_views(
+    rows: list[Transaction],
+    _ignored_transaction_filters: dict | None = None,
+    trade_date_from: date | None = None,
+    trade_date_to: date | None = None,
+) -> list[TxnView]:
+    """Build one reconciliation action per row using only its order status."""
+    grouped: dict[str, list[Transaction]] = {}
+    for txn in rows:
+        grouped.setdefault(_base_order_id(txn), []).append(txn)
+
+    views: list[TxnView] = []
+    for group in grouped.values():
+        ordered = sorted(
+            group,
+            key=lambda txn: txn.ordered_at
+            or txn.executed_at
+            or datetime.min.replace(tzinfo=UTC),
+        )
+        for index, txn in enumerate(ordered):
+            status = _raw_first(
+                txn.raw,
+                "order_status",
+                "\u8a02\u55ae\u72c0\u614b",
+                "\u8ba2\u5355\u72b6\u6001",
+            )
+            action_type = recon_action_for_status(status)
+            if action_type is None:
+                continue
+            previous = ordered[index - 1] if action_type == "replace" and index > 0 else None
+            views.append(_action_view(txn, action_type, previous))
+
     if trade_date_from is None:
         return views
     trade_date_to = trade_date_to or trade_date_from

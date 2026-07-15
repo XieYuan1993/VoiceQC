@@ -690,7 +690,7 @@ def test_unmatched_reason_defaults_to_score_only_and_can_restore_broker_diagnost
     assert legacy_result.candidates["NO-MATCH"][0]["recording_id"] == "R-NEAR"
 
 
-def test_transaction_filters_use_imported_order_metadata():
+def _legacy_test_transaction_filters_use_imported_order_metadata():
     class Txn:
         def __init__(self):
             self.raw = {"order_status": "已委託", "execution_type": "NewExec"}
@@ -716,3 +716,15 @@ def test_transaction_filters_use_imported_order_metadata():
             "execution_types": ["TradeExec"],
         },
     )
+
+
+def test_fixed_status_filter_ignores_legacy_filter_configuration():
+    class Txn:
+        def __init__(self, status: str):
+            self.raw = {"order_status": status, "execution_type": "TradeExec"}
+
+    legacy_filters = {"order_statuses": [], "execution_types": []}
+
+    assert _passes_transaction_filters(Txn("\u5df2\u59d4\u8a17"), legacy_filters)
+    assert _passes_transaction_filters(Txn("\u5df2\u904e\u671f"), legacy_filters)
+    assert not _passes_transaction_filters(Txn("\u6210\u4ea4"), None)
