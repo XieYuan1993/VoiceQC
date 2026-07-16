@@ -32,5 +32,8 @@ mocks/recorder/recordings/
 mocks/data/eod_trades_*.csv
 mocks/data/eod_trades_*.xlsx
 
+# local reports and client deliverables
+reports/
+
 # os
 .DS_Store

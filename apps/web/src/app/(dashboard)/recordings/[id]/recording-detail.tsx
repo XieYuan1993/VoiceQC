@@ -205,6 +205,7 @@ export function RecordingDetailView({
   const [transcript, setTranscript] = React.useState<Transcript | null>(null);
   const [transcriptMissing, setTranscriptMissing] = React.useState(false);
   const [transcriptError, setTranscriptError] = React.useState<string | null>(null);
+  const [transcriptOpen, setTranscriptOpen] = React.useState(false);
   const [showRaw, setShowRaw] = React.useState(false);
   const [reprocessing, setReprocessing] = React.useState(false);
   const [actionError, setActionError] = React.useState<string | null>(null);
@@ -215,6 +216,7 @@ export function RecordingDetailView({
   const audioRef = React.useRef<HTMLAudioElement>(null);
   const segmentRefs = React.useRef(new Map<number, HTMLButtonElement>());
   const flashTimer = React.useRef<number | null>(null);
+  const pendingEvidenceIdx = React.useRef<number | null>(null);
 
   const loadRecording = React.useCallback(async () => {
     try {
@@ -252,6 +254,12 @@ export function RecordingDetailView({
     void loadRecording();
     void loadTranscript();
   }, [loadRecording, loadTranscript]);
+
+  React.useEffect(() => {
+    setTranscriptOpen(false);
+    setShowRaw(false);
+    pendingEvidenceIdx.current = null;
+  }, [recordingId]);
 
   // Light polling while the pipeline works on this recording.
   const status = rec?.status;
@@ -310,11 +318,29 @@ export function RecordingDetailView({
       }
       if (s.start_ms <= ms) idx = i;
     }
-    segmentRefs.current.get(idx)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    pendingEvidenceIdx.current = idx;
+    if (transcriptOpen) {
+      window.requestAnimationFrame(() => {
+        segmentRefs.current.get(idx)?.scrollIntoView({ behavior: "smooth", block: "center" });
+        pendingEvidenceIdx.current = null;
+      });
+    } else {
+      setTranscriptOpen(true);
+    }
     setFlashIdx(idx);
     if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
     flashTimer.current = window.setTimeout(() => setFlashIdx(null), 1600);
   }
+
+  React.useEffect(() => {
+    if (!transcriptOpen || pendingEvidenceIdx.current === null) return;
+    const idx = pendingEvidenceIdx.current;
+    const frame = window.requestAnimationFrame(() => {
+      segmentRefs.current.get(idx)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      pendingEvidenceIdx.current = null;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [transcriptOpen]);
 
   React.useEffect(
     () => () => {
@@ -414,13 +440,12 @@ export function RecordingDetailView({
         </div>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-        <div className="space-y-6">
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Call details</CardTitle>
-            </CardHeader>
-            <CardContent>
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Call details</CardTitle>
+          </CardHeader>
+          <CardContent>
               <dl className="grid grid-cols-2 gap-x-4 gap-y-4">
                 <MetaItem label="Agent" source="filename">
                   {[rec.broker_ext, rec.broker_name].filter(Boolean).join(" / ") || "--"}
@@ -477,50 +502,78 @@ export function RecordingDetailView({
                   )}
                 </div>
               )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Audio</CardTitle>
-              <CardDescription>Click a transcript segment to jump the playhead.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {/* The endpoint 302s to a short-lived signed URL; credentials
-                  ride along for the API hop (CORS allows them from :3020). */}
-              <audio
-                ref={audioRef}
-                controls
-                crossOrigin="use-credentials"
-                preload="metadata"
-                src={`${API_URL}/api/recordings/${recordingId}/audio`}
-                className="w-full"
-              />
-            </CardContent>
-          </Card>
-        </div>
+          </CardContent>
+        </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-3">
-            <div>
-              <CardTitle className="text-base">Transcript</CardTitle>
-              {transcript && (
-                <CardDescription className="mt-1">
-                  {transcript.stt_model}
-                  {transcript.language_detected ? ` · ${transcript.language_detected}` : ""}
-                  {transcript.billed_seconds != null
-                    ? ` · ${formatDuration(transcript.billed_seconds)} billed`
-                    : ""}
-                </CardDescription>
-              )}
-            </div>
-            {transcript && transcript.full_text && (
-              <Button variant="ghost" size="sm" onClick={() => setShowRaw((v) => !v)}>
-                {showRaw ? "Hide raw text" : "Show raw text"}
-              </Button>
-            )}
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Audio</CardTitle>
+            <CardDescription>Click a transcript segment to jump the playhead.</CardDescription>
           </CardHeader>
           <CardContent>
+            {/* The endpoint 302s to a short-lived signed URL; credentials
+                  ride along for the API hop (CORS allows them from :3020). */}
+            <audio
+              ref={audioRef}
+              controls
+              crossOrigin="use-credentials"
+              preload="metadata"
+              src={`${API_URL}/api/recordings/${recordingId}/audio`}
+              className="w-full"
+            />
+          </CardContent>
+        </Card>
+      </div>
+
+      <EvaluationPanel
+        recordingId={recordingId}
+        recordingStatus={rec.status}
+        canReview={canReview}
+        onJump={jumpToEvidence}
+        onRecordingChanged={() => void loadRecording()}
+      />
+
+      <Card>
+        <CardHeader className="p-0">
+          <button
+            type="button"
+            className="flex w-full items-start justify-between gap-4 rounded-lg p-6 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            onClick={() => setTranscriptOpen((open) => !open)}
+            aria-expanded={transcriptOpen}
+            aria-controls="recording-transcript"
+          >
+            <div>
+              <CardTitle className="text-base">Transcript</CardTitle>
+              <CardDescription className="mt-1">
+                {transcript
+                  ? `${transcript.language_detected ?? "Transcription complete"}${
+                      transcript.billed_seconds != null
+                        ? ` · ${formatDuration(transcript.billed_seconds)} billed`
+                        : ""
+                    }`
+                  : transcriptMissing
+                    ? "No transcript available"
+                    : "Expand to view the transcription"}
+              </CardDescription>
+            </div>
+            <ChevronDown
+              className={cn(
+                "mt-0.5 h-5 w-5 shrink-0 text-muted-foreground transition-transform",
+                transcriptOpen && "rotate-180",
+              )}
+              aria-hidden
+            />
+          </button>
+        </CardHeader>
+        {transcriptOpen && (
+          <CardContent id="recording-transcript" className="border-t pt-6">
+            {transcript && transcript.full_text && (
+              <div className="mb-4 flex justify-end">
+                <Button variant="ghost" size="sm" onClick={() => setShowRaw((v) => !v)}>
+                  {showRaw ? "Hide raw text" : "Show raw text"}
+                </Button>
+              </div>
+            )}
             {transcriptError !== null ? (
               <p className="text-sm text-destructive">
                 Failed to load transcript: {transcriptError}
@@ -564,16 +617,8 @@ export function RecordingDetailView({
               </div>
             )}
           </CardContent>
-        </Card>
-      </div>
-
-      <EvaluationPanel
-        recordingId={recordingId}
-        recordingStatus={rec.status}
-        canReview={canReview}
-        onJump={jumpToEvidence}
-        onRecordingChanged={() => void loadRecording()}
-      />
+        )}
+      </Card>
     </div>
   );
 }

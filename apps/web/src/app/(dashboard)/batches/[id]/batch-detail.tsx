@@ -94,7 +94,6 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
   const [notice, setNotice] = React.useState<string | null>(null);
   const [rerunOpen, setRerunOpen] = React.useState(false);
   const [rerunProvider, setRerunProvider] = React.useState("tencent");
-  const [rerunModel, setRerunModel] = React.useState("16k_zh_en");
   const [rerunAutoRetry, setRerunAutoRetry] = React.useState(true);
   const [rerunningStt, setRerunningStt] = React.useState(false);
   const [rerunningEval, setRerunningEval] = React.useState(false);
@@ -262,7 +261,6 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
 
   function onRerunProviderChange(provider: string) {
     setRerunProvider(provider);
-    setRerunModel(ASR_PROVIDER_OPTIONS.find((opt) => opt.value === provider)?.model ?? "");
   }
 
   async function onRerunStt() {
@@ -270,11 +268,11 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
     setNotice(null);
     setRerunningStt(true);
     try {
-      const model = rerunModel.trim();
+      const model = ASR_PROVIDER_OPTIONS.find((option) => option.value === rerunProvider)?.model;
       const res = await apiJson<{ queued: number }>(`/api/batches/${batchId}/rerun-stt`, "post", {
         body: {
           asr_provider: rerunProvider,
-          asr_model: model.length > 0 ? model : null,
+          asr_model: model ?? null,
           auto_retry_limit: rerunAutoRetry ? 2 : 0,
         },
       });
@@ -793,15 +791,6 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
                   </option>
                 ))}
               </Select>
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="asr-model">Model</Label>
-              <Input
-                id="asr-model"
-                value={rerunModel}
-                onChange={(e) => setRerunModel(e.target.value)}
-                placeholder="Provider default"
-              />
             </div>
             <div className="flex items-center justify-between gap-4 border-t pt-4">
               <div>

@@ -1170,11 +1170,6 @@ export function EvaluationPanel({
               <Badge variant={REVIEW_BADGE[selected.review_status] ?? "neutral"}>
                 {selected.review_status}
               </Badge>
-              {selected.llm_model && (
-                <span className="font-mono text-xs text-muted-foreground">
-                  {selected.llm_model}
-                </span>
-              )}
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
               {formatTokens(selected.input_tokens)} in · {formatTokens(selected.output_tokens)}{" "}
