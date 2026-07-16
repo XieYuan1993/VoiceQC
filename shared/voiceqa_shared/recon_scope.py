@@ -5,13 +5,13 @@ from __future__ import annotations
 RECON_ORDER_STATUSES = (
     "\u5df2\u4fee\u6539",  # modified
     "\u5df2\u59d4\u8a17",  # entrusted
-    "\u5df2\u904e\u671f",  # expired
+    "\u5df2\u62d2\u7d55",  # rejected
     "\u5df2\u64a4\u55ae",  # cancelled
 )
 
 _STATUS_ALIASES = {
     "\u5df2\u59d4\u6258": "\u5df2\u59d4\u8a17",
-    "\u5df2\u8fc7\u671f": "\u5df2\u904e\u671f",
+    "\u5df2\u62d2\u7edd": "\u5df2\u62d2\u7d55",
     "\u5df2\u64a4\u5355": "\u5df2\u64a4\u55ae",
 }
 

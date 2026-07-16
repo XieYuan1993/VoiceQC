@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from voiceqa_shared.db_models import TradeInstruction, Transaction
+from voiceqa_shared.recon_scope import recon_action_for_status
 from worker.recon.engine import InstrView, Params, TxnView, run_match
 from worker.tasks.recon import _is_match_eligible_instruction, _transaction_action_views
 
@@ -23,6 +24,13 @@ def test_only_order_interactions_are_match_eligible() -> None:
         TradeInstruction(extra_fields={"interaction_type": "inquiry"})
     )
 PRESET_CONDITION = "待報\uff08條件單\uff09"
+
+
+def test_reconciliation_status_aliases_include_rejected_not_expired() -> None:
+    assert recon_action_for_status("\u5df2\u62d2\u7d55") == "new"
+    assert recon_action_for_status("\u5df2\u62d2\u7edd") == "new"
+    assert recon_action_for_status("\u5df2\u904e\u671f") is None
+    assert recon_action_for_status("\u5df2\u8fc7\u671f") is None
 
 
 def hk(hhmm: str) -> datetime:
@@ -215,11 +223,9 @@ def test_reconciliation_scope_uses_only_fixed_order_statuses() -> None:
         order_row(
             "00000000-0000-0000-0000-000000000043",
             "S3",
-            "16:10",
-            "\u5df2\u904e\u671f",
-            "ExpiredExec",
-            info="rms.limit_code.udss",
-            upstream="HKEX",
+            "10:02",
+            "\u5df2\u62d2\u7d55",
+            "RejectedExec",
         ),
         order_row(
             "00000000-0000-0000-0000-000000000044",
@@ -248,8 +254,8 @@ def test_reconciliation_scope_uses_only_fixed_order_statuses() -> None:
             "00000000-0000-0000-0000-000000000047",
             "S7",
             "10:06",
-            "\u5df2\u62d2\u7d55",
-            "CanceledExec",
+            "\u5df2\u904e\u671f",
+            "ExpiredExec",
         ),
         order_row(
             "00000000-0000-0000-0000-000000000048",

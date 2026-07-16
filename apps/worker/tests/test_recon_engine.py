@@ -726,5 +726,6 @@ def test_fixed_status_filter_ignores_legacy_filter_configuration():
     legacy_filters = {"order_statuses": [], "execution_types": []}
 
     assert _passes_transaction_filters(Txn("\u5df2\u59d4\u8a17"), legacy_filters)
-    assert _passes_transaction_filters(Txn("\u5df2\u904e\u671f"), legacy_filters)
+    assert _passes_transaction_filters(Txn("\u5df2\u62d2\u7d55"), legacy_filters)
+    assert not _passes_transaction_filters(Txn("\u5df2\u904e\u671f"), legacy_filters)
     assert not _passes_transaction_filters(Txn("\u6210\u4ea4"), None)
