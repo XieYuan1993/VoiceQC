@@ -29,6 +29,20 @@ def test_long_trade_transcript_is_chunked_with_overlap() -> None:
     assert set(chunks[0].splitlines()[-2:]) <= set(chunks[1].splitlines())
 
 
+def test_realistic_twenty_minute_transcript_uses_default_chunking() -> None:
+    text = "\n".join(
+        f"[{index // 60:02d}:{index % 60:02d}] broker: trade update line {index:03d}"
+        for index in range(250)
+    )
+    assert 9_000 < len(text) < 12_000
+
+    chunks = _trade_chunks(text)
+
+    assert len(chunks) == 2
+    assert all(len(chunk) <= 6_000 for chunk in chunks)
+    assert chunks[0].splitlines()[-2:] == chunks[1].splitlines()[:2]
+
+
 def test_six_digit_account_prefers_account_label_then_call_opening() -> None:
     assert _six_digit_account("[00:03] broker: \u6236\u53e3 606 248, confirm") == "606248"
     assert (
