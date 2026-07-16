@@ -39,3 +39,26 @@ def test_evaluation_task_runs_after_acquiring_recording_lock(monkeypatch) -> Non
     evaluate_module.evaluate.run("recording-1")
 
     assert calls == ["recording-1"]
+
+
+def test_generate_structured_stage_preserves_stage_and_timeout() -> None:
+    class TimeoutAdapter:
+        def generate_structured(self, *_args, **_kwargs):
+            raise TimeoutError("The read operation timed out")
+
+    try:
+        evaluate_module._generate_structured_stage(
+            TimeoutAdapter(),
+            "prompt",
+            {},
+            model="qwen",
+            stage="trade extraction chunk 2/3",
+            temperature=0.1,
+        )
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("expected RuntimeError")
+
+    assert "trade extraction chunk 2/3" in message
+    assert "timed out" in message

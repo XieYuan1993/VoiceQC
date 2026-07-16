@@ -866,6 +866,24 @@ def _mark_evaluation_attempt_failed(evaluation_id: uuid.UUID, error: str) -> Non
             session.commit()
 
 
+def _generate_structured_stage(
+    adapter,
+    prompt: str,
+    schema: dict[str, Any],
+    *,
+    model: str,
+    stage: str,
+    temperature: float | None = None,
+):
+    kwargs: dict[str, Any] = {"model": model}
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+    try:
+        return adapter.generate_structured(prompt, schema, **kwargs)
+    except Exception as exc:
+        raise RuntimeError(f"{stage} failed: {exc}") from exc
+
+
 @app.task(name="voiceqa.pipeline.evaluate", bind=True, max_retries=5)
 def evaluate(self, recording_id: str) -> None:
     with _evaluation_recording_lock(recording_id) as acquired:
@@ -1075,15 +1093,23 @@ def _evaluate_locked(self, recording_id: str) -> None:
 
     try:
         adapter = _adapter()
-        parsed, in_tok, out_tok = adapter.generate_structured(prompt, schema, model=model)
+        parsed, in_tok, out_tok = _generate_structured_stage(
+            adapter,
+            prompt,
+            schema,
+            model=model,
+            stage="overall evaluation",
+        )
         evaluation_summary = str(parsed.get("summary") or "").strip()
         trade_outputs = []
-        for trade_prompt in trade_prompts:
+        for index, trade_prompt in enumerate(trade_prompts, 1):
             trade_prompt = _add_evaluation_summary_hint(trade_prompt, evaluation_summary)
-            trade_output, trade_in_tok, trade_out_tok = adapter.generate_structured(
+            trade_output, trade_in_tok, trade_out_tok = _generate_structured_stage(
+                adapter,
                 trade_prompt,
                 trade_schema,
                 model=model,
+                stage=f"trade extraction chunk {index}/{len(trade_prompts)}",
                 temperature=0.1,
             )
             trade_outputs.append(trade_output)

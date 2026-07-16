@@ -13,7 +13,7 @@ from typing import Any
 import httpx
 from loguru import logger
 
-_TIMEOUT = 200.0
+_TIMEOUT = 300.0
 
 
 def _strip_json_fences(s: str) -> str:
