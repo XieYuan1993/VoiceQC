@@ -14,12 +14,13 @@ from __future__ import annotations
 import re
 import uuid
 from collections import Counter
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import Any
 
 from loguru import logger
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from voiceqa_shared.db_models import (
     ChecklistItem,
     EvalCriterion,
@@ -37,7 +38,7 @@ from voiceqa_shared.db_models import (
 from voiceqa_shared.llm_usage import llm_tokens_today_sync, record_llm_usage_sync
 
 from worker.celery_app import app
-from worker.db import SessionLocal, get_setting
+from worker.db import SessionLocal, engine, get_setting
 from worker.kb import cosine
 from worker.llm import factory
 from worker.llm.embeddings import Embedder
@@ -828,8 +829,53 @@ def _overall_score(criteria: list[EvalCriterion], by_key: dict[str, dict]) -> fl
 # ---------------------------------------------------------------------------
 
 
+@contextmanager
+def _evaluation_recording_lock(recording_id: str):
+    """Hold a crash-safe, cross-worker lock for one recording evaluation."""
+    scope = f"voiceqa-evaluation-recording:{recording_id}"
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+        acquired = bool(
+            connection.execute(
+                text(
+                    "SELECT pg_try_advisory_lock("
+                    "hashtextextended(CAST(:scope AS text), 0))"
+                ),
+                {"scope": scope},
+            ).scalar_one()
+        )
+        try:
+            yield acquired
+        finally:
+            if acquired:
+                connection.execute(
+                    text(
+                        "SELECT pg_advisory_unlock("
+                        "hashtextextended(CAST(:scope AS text), 0))"
+                    ),
+                    {"scope": scope},
+                )
+
+
+def _mark_evaluation_attempt_failed(evaluation_id: uuid.UUID, error: str) -> None:
+    with SessionLocal() as session:
+        evaluation = session.get(Evaluation, evaluation_id)
+        if evaluation is not None and evaluation.status == "running":
+            evaluation.status = "failed"
+            evaluation.error = error[:2000]
+            evaluation.completed_at = datetime.now(UTC)
+            session.commit()
+
+
 @app.task(name="voiceqa.pipeline.evaluate", bind=True, max_retries=5)
 def evaluate(self, recording_id: str) -> None:
+    with _evaluation_recording_lock(recording_id) as acquired:
+        if not acquired:
+            logger.info("evaluation already active for {}; duplicate task ignored", recording_id)
+            return
+        _evaluate_locked(self, recording_id)
+
+
+def _evaluate_locked(self, recording_id: str) -> None:
     from worker.tasks.batch import update_progress
 
     with SessionLocal() as session:
@@ -1060,21 +1106,18 @@ def evaluate(self, recording_id: str) -> None:
         )
         if transient:
             if self.request.retries >= self.max_retries:
-                with SessionLocal() as session:
-                    ev = session.get(Evaluation, evaluation_id)
-                    if ev is not None:
-                        ev.status = "failed"
-                        ev.error = "evaluation retry limit exceeded"
-                        session.commit()
+                _mark_evaluation_attempt_failed(
+                    evaluation_id,
+                    "evaluation retry limit exceeded",
+                )
                 _fail(recording_id, "eval", RuntimeError("evaluation retry limit exceeded"))
                 raise
+            _mark_evaluation_attempt_failed(
+                evaluation_id,
+                f"transient LLM failure; retry scheduled: {e}",
+            )
             raise self.retry(countdown=60, exc=e) from e
-        with SessionLocal() as session:
-            ev = session.get(Evaluation, evaluation_id)
-            if ev is not None:
-                ev.status = "failed"
-                ev.error = str(e)[:2000]
-                session.commit()
+        _mark_evaluation_attempt_failed(evaluation_id, str(e))
         _fail(recording_id, "eval", e)
         raise
 
