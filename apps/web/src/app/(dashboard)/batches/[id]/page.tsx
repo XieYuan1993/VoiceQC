@@ -1,5 +1,8 @@
 import { auth } from "@/auth";
+import { getActiveProject } from "@/lib/project";
 import { canManage } from "@/lib/roles";
+
+import { cookieHeader } from "../../_data";
 
 import { BatchDetail } from "./batch-detail";
 
@@ -10,5 +13,12 @@ export default async function BatchDetailPage({
 }) {
   const { id } = await params;
   const session = await auth();
-  return <BatchDetail batchId={id} canManage={canManage(session?.user?.role)} />;
+  const { id: projectId } = await getActiveProject(await cookieHeader());
+  return (
+    <BatchDetail
+      batchId={id}
+      projectId={projectId}
+      canManage={canManage(session?.user?.role)}
+    />
+  );
 }

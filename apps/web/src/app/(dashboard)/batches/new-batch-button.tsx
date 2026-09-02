@@ -24,7 +24,7 @@ function today(): string {
   ).padStart(2, "0")}`;
 }
 
-export function NewBatchButton() {
+export function NewBatchButton({ projectId }: { projectId: string }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [name, setName] = React.useState("");
@@ -54,6 +54,7 @@ export function NewBatchButton() {
     try {
       const batch = await apiCall("/api/batches", "post", {
         body: { name: name.trim(), trade_date: tradeDate },
+        params: { query: { project_id: projectId } },
       });
       setOpen(false);
       router.push(`/batches/${batch.id}`);

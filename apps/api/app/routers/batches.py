@@ -156,9 +156,11 @@ async def list_batches(
     return BatchListOut(items=items, total=total, page=page, page_size=page_size)
 
 
-async def _get_batch(session: AsyncSession, batch_id: uuid.UUID) -> UploadBatch:
+async def _get_batch(
+    session: AsyncSession, batch_id: uuid.UUID, project_id: uuid.UUID
+) -> UploadBatch:
     batch = await session.get(UploadBatch, batch_id)
-    if batch is None:
+    if batch is None or batch.project_id != project_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "batch not found")
     return batch
 
@@ -309,10 +311,11 @@ async def bulk_rerun_stt(
 @router.get("/{batch_id}", response_model=BatchOut)
 async def get_batch(
     batch_id: uuid.UUID,
+    project_id: uuid.UUID = Depends(resolve_project_id),
     user: User = Depends(require(RECORDINGS_READ_ALL)),
     session: AsyncSession = Depends(get_session),
 ) -> BatchOut:
-    batch = await _get_batch(session, batch_id)
+    batch = await _get_batch(session, batch_id, project_id)
     return _out(batch, await _counts(session, batch.id), await _last_run_at(session, batch.id))
 
 
@@ -320,10 +323,11 @@ async def get_batch(
 async def init_direct_upload(
     batch_id: uuid.UUID,
     payload: DirectUploadInit,
+    project_id: uuid.UUID = Depends(resolve_project_id),
     user: User = Depends(require(BATCHES_MANAGE)),
     session: AsyncSession = Depends(get_session),
 ) -> DirectUploadInitOut:
-    batch = await _get_batch(session, batch_id)
+    batch = await _get_batch(session, batch_id, project_id)
     if batch.status != "open":
         raise HTTPException(status.HTTP_409_CONFLICT, f"batch is {batch.status}, not open")
 
@@ -363,10 +367,11 @@ async def init_direct_upload(
 async def complete_direct_upload(
     batch_id: uuid.UUID,
     payload: DirectUploadComplete,
+    project_id: uuid.UUID = Depends(resolve_project_id),
     user: User = Depends(require(BATCHES_MANAGE)),
     session: AsyncSession = Depends(get_session),
 ) -> UploadFileResult:
-    batch = await _get_batch(session, batch_id)
+    batch = await _get_batch(session, batch_id, project_id)
     if batch.status != "open":
         raise HTTPException(status.HTTP_409_CONFLICT, f"batch is {batch.status}, not open")
 
@@ -457,9 +462,7 @@ async def delete_batch(
 ) -> Response:
     """Delete a batch and (by cascade) its recordings, transcripts, evaluations and
     trade instructions, then purge their audio from object storage."""
-    batch = await session.get(UploadBatch, batch_id)
-    if batch is None or batch.project_id != project_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "batch not found")
+    batch = await _get_batch(session, batch_id, project_id)
     recs = (
         await session.execute(select(Recording).where(Recording.batch_id == batch_id))
     ).scalars().all()
@@ -487,10 +490,11 @@ async def delete_batch(
 async def upload_file(
     batch_id: uuid.UUID,
     file: UploadFile,
+    project_id: uuid.UUID = Depends(resolve_project_id),
     user: User = Depends(require(BATCHES_MANAGE)),
     session: AsyncSession = Depends(get_session),
 ) -> UploadFileResult:
-    batch = await _get_batch(session, batch_id)
+    batch = await _get_batch(session, batch_id, project_id)
     if batch.status != "open":
         raise HTTPException(status.HTTP_409_CONFLICT, f"batch is {batch.status}, not open")
 
@@ -562,11 +566,12 @@ async def upload_file(
 @router.post("/{batch_id}/finalize", response_model=BatchOut)
 async def finalize_batch(
     batch_id: uuid.UUID,
+    project_id: uuid.UUID = Depends(resolve_project_id),
     user: User = Depends(require(BATCHES_MANAGE)),
     session: AsyncSession = Depends(get_session),
     meta: ClientMeta = Depends(client_meta),
 ) -> BatchOut:
-    batch = await _get_batch(session, batch_id)
+    batch = await _get_batch(session, batch_id, project_id)
     if batch.status != "open":
         raise HTTPException(status.HTTP_409_CONFLICT, f"batch is {batch.status}, not open")
     batch.status = "processing"
@@ -583,11 +588,12 @@ async def finalize_batch(
 @router.post("/{batch_id}/retry-failed", response_model=RetryResult)
 async def retry_failed(
     batch_id: uuid.UUID,
+    project_id: uuid.UUID = Depends(resolve_project_id),
     user: User = Depends(require(BATCHES_MANAGE)),
     session: AsyncSession = Depends(get_session),
     meta: ClientMeta = Depends(client_meta),
 ) -> RetryResult:
-    batch = await _get_batch(session, batch_id)
+    batch = await _get_batch(session, batch_id, project_id)
     failed = (
         (
             await session.execute(
@@ -649,11 +655,12 @@ async def retry_failed(
 async def rerun_batch_stt(
     batch_id: uuid.UUID,
     payload: BatchSttRerunIn,
+    project_id: uuid.UUID = Depends(resolve_project_id),
     user: User = Depends(require(BATCHES_MANAGE)),
     session: AsyncSession = Depends(get_session),
     meta: ClientMeta = Depends(client_meta),
 ) -> BulkRerunOut:
-    batch = await _get_batch(session, batch_id)
+    batch = await _get_batch(session, batch_id, project_id)
     rows = (
         await session.execute(
             select(Recording).where(

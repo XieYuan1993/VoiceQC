@@ -32,7 +32,7 @@ interface BulkRerunResult {
   skipped_no_audio: number;
 }
 
-export function BulkBatchActions() {
+export function BulkBatchActions({ projectId }: { projectId: string }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [provider, setProvider] = React.useState("tencent");
@@ -51,7 +51,8 @@ export function BulkBatchActions() {
     setError(null);
     try {
       const model = ASR_PROVIDER_OPTIONS.find((option) => option.value === provider)?.model;
-      const result = await apiJson<BulkRerunResult>("/api/batches/bulk-rerun-stt", "post", {
+      const query = new URLSearchParams({ project_id: projectId });
+      const result = await apiJson<BulkRerunResult>(`/api/batches/bulk-rerun-stt?${query}`, "post", {
         body: {
           asr_provider: provider,
           asr_model: model ?? null,

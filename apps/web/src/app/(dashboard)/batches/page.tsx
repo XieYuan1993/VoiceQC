@@ -103,8 +103,8 @@ export default async function BatchesPage({
         </div>
         {manage && (
           <div className="flex items-start gap-2">
-            <BulkBatchActions />
-            <NewBatchButton />
+            <BulkBatchActions projectId={projectId} />
+            <NewBatchButton projectId={projectId} />
           </div>
         )}
       </div>
@@ -172,6 +172,7 @@ export default async function BatchesPage({
                       <TableCell className="text-right">
                         <DeleteBatchButton
                           batchId={b.id}
+                          projectId={projectId}
                           batchName={b.name ?? String(b.trade_date)}
                           fileCount={fileCount(b)}
                         />

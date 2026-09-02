@@ -80,7 +80,15 @@ function UploadStateBadge({ state }: { state: UploadState }) {
   }
 }
 
-export function BatchDetail({ batchId, canManage }: { batchId: string; canManage: boolean }) {
+export function BatchDetail({
+  batchId,
+  projectId,
+  canManage,
+}: {
+  batchId: string;
+  projectId: string;
+  canManage: boolean;
+}) {
   const [batch, setBatch] = React.useState<Batch | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [recordings, setRecordings] = React.useState<RecordingList | null>(null);
@@ -113,7 +121,7 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
   const loadBatch = React.useCallback(async () => {
     try {
       const b = await apiCall("/api/batches/{batch_id}", "get", {
-        params: { path: { batch_id: batchId } },
+        params: { path: { batch_id: batchId }, query: { project_id: projectId } },
       });
       batchRef.current = b;
       setBatch(b);
@@ -123,13 +131,15 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
       // when the first load never succeeded.
       if (batchRef.current === null) setLoadError(getApiErrorMessage(e));
     }
-  }, [batchId]);
+  }, [batchId, projectId]);
 
   const loadRecordings = React.useCallback(
     async (page: number) => {
       try {
         const r = await apiCall("/api/recordings", "get", {
-          params: { query: { batch_id: batchId, page, page_size: REC_PAGE_SIZE } },
+          params: {
+            query: { project_id: projectId, batch_id: batchId, page, page_size: REC_PAGE_SIZE },
+          },
         });
         setRecordings(r);
         setRecError(null);
@@ -137,7 +147,7 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
         setRecError(getApiErrorMessage(e));
       }
     },
-    [batchId],
+    [batchId, projectId],
   );
 
   const refresh = React.useCallback(() => {
@@ -175,6 +185,7 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
       activeRef.current += 1;
       updateUpload(id, { state: "uploading", progress: 0 });
       uploadDirectToStorage<UploadFileResult>(`/api/batches/${batchId}`, file, {
+        query: { project_id: projectId },
         onProgress: (fraction) => updateUpload(id, { progress: fraction }),
       })
         .then((res) => {
@@ -232,7 +243,7 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
     setFinalizing(true);
     try {
       await apiCall("/api/batches/{batch_id}/finalize", "post", {
-        params: { path: { batch_id: batchId } },
+        params: { path: { batch_id: batchId }, query: { project_id: projectId } },
       });
       refresh();
     } catch (e) {
@@ -248,7 +259,7 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
     setRetrying(true);
     try {
       const res = await apiCall("/api/batches/{batch_id}/retry-failed", "post", {
-        params: { path: { batch_id: batchId } },
+        params: { path: { batch_id: batchId }, query: { project_id: projectId } },
       });
       setNotice(`Retrying ${res.retried} failed recording${res.retried === 1 ? "" : "s"}.`);
       refresh();
@@ -269,7 +280,8 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
     setRerunningStt(true);
     try {
       const model = ASR_PROVIDER_OPTIONS.find((option) => option.value === rerunProvider)?.model;
-      const res = await apiJson<{ queued: number }>(`/api/batches/${batchId}/rerun-stt`, "post", {
+      const query = new URLSearchParams({ project_id: projectId });
+      const res = await apiJson<{ queued: number }>(`/api/batches/${batchId}/rerun-stt?${query}`, "post", {
         body: {
           asr_provider: rerunProvider,
           asr_model: model ?? null,
@@ -298,7 +310,7 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
     setNotice(null);
     setRerunningEval(true);
     try {
-      const query = new URLSearchParams({ batch_id: batchId });
+      const query = new URLSearchParams({ project_id: projectId, batch_id: batchId });
       const res = await apiJson<{ queued: number }>(
         `/api/recordings/reevaluate?${query.toString()}`,
         "post",
@@ -434,6 +446,7 @@ export function BatchDetail({ batchId, canManage }: { batchId: string; canManage
           {canManage && (
             <DeleteBatchButton
               batchId={batch.id}
+              projectId={projectId}
               batchName={batch.name ?? String(batch.trade_date)}
               fileCount={serverFileCount}
               variant="button"

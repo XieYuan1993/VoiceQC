@@ -19,12 +19,14 @@ import { apiCall, getApiErrorMessage } from "@/lib/api";
  * dialog. `icon` for table rows, `button` for the detail header. */
 export function DeleteBatchButton({
   batchId,
+  projectId,
   batchName,
   fileCount,
   variant = "icon",
   redirectTo,
 }: {
   batchId: string;
+  projectId: string;
   batchName: string;
   fileCount: number;
   variant?: "icon" | "button";
@@ -40,7 +42,7 @@ export function DeleteBatchButton({
     setError(null);
     try {
       await apiCall("/api/batches/{batch_id}", "delete", {
-        params: { path: { batch_id: batchId } },
+        params: { path: { batch_id: batchId }, query: { project_id: projectId } },
       });
       setOpen(false);
       if (redirectTo) router.push(redirectTo as never);

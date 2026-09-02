@@ -154,6 +154,8 @@ export interface UploadOptions {
   signal?: AbortSignal;
   /** Extra multipart form fields sent alongside `file`. */
   fields?: Record<string, string>;
+  /** Query parameters for project-scoped upload endpoints. */
+  query?: Record<string, string | number | boolean | undefined | null>;
 }
 
 interface DirectUploadInitResponse {
@@ -292,7 +294,12 @@ export async function uploadDirectToStorage<T>(
   opts: UploadOptions = {},
 ): Promise<T> {
   const contentType = file.type || "application/octet-stream";
-  const initRes = await fetch(`${API_URL}${path}/direct-upload`, {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(opts.query ?? {})) {
+    if (value != null) query.set(key, String(value));
+  }
+  const suffix = query.size > 0 ? `?${query}` : "";
+  const initRes = await fetch(`${API_URL}${path}/direct-upload${suffix}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -312,7 +319,7 @@ export async function uploadDirectToStorage<T>(
   await putSignedUrl(init.upload_url, file, init.headers, opts);
   const sha = await shaPromise;
 
-  const completeRes = await fetch(`${API_URL}${path}/direct-upload/complete`, {
+  const completeRes = await fetch(`${API_URL}${path}/direct-upload/complete${suffix}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
