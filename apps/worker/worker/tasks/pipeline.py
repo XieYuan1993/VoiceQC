@@ -37,7 +37,7 @@ from worker.asr import factory
 from worker.asr.base import AdaptationPhrase, ChannelFile
 from worker.celery_app import app
 from worker.db import SessionLocal, get_setting
-from worker.mono_speaker_repair import repair_mono_transcript
+from worker.mono_speaker_repair import parse_repaired_speaker_turns, repair_mono_transcript
 from worker.settings import settings
 
 _STAGE_BY_STATUS = {
@@ -564,6 +564,7 @@ def transcribe(
             mm, ss = divmod(start_ms // 1000, 60)
             lines.append(f"[{mm:02d}:{ss:02d}] {role}: {_spoken_digits_to_arabic(text)}")
         full_text = "\n".join(lines)
+        repaired_turns: list[tuple[str, int, str]] = []
 
         is_mono_mixed = duplicate_role_channels or bool(
             rec.gcs_uri_mono and not rec.gcs_uri_broker and not rec.gcs_uri_customer
@@ -576,6 +577,7 @@ def transcribe(
                 get_setting(session, project_id, "llm.model", settings.VERTEX_LLM_MODEL),
             )
             full_text = repair_mono_transcript(full_text, model=repair_model, session=session)
+            repaired_turns = parse_repaired_speaker_turns(full_text)
 
         # Replace any prior transcript (reprocess path).
         old = session.execute(
@@ -593,18 +595,37 @@ def transcribe(
         )
         session.add(transcript)
         session.flush()
-        session.add_all(
-            TranscriptSegment(
-                transcript_id=transcript.id,
-                channel_role=role,
-                start_ms=seg.start_ms,
-                end_ms=seg.end_ms,
-                text=seg.text,
-                language=seg.language,
-                confidence=seg.confidence,
+        if repaired_turns:
+            session.add_all(
+                TranscriptSegment(
+                    transcript_id=transcript.id,
+                    channel_role=role,
+                    start_ms=start_ms,
+                    end_ms=(
+                        repaired_turns[index + 1][1]
+                        if index + 1 < len(repaired_turns)
+                        and repaired_turns[index + 1][1] > start_ms
+                        else start_ms + 1
+                    ),
+                    text=text,
+                    language=max(languages, key=languages.get) if languages else None,
+                    confidence=None,
+                )
+                for index, (role, start_ms, text) in enumerate(repaired_turns)
             )
-            for role, seg in segments
-        )
+        else:
+            session.add_all(
+                TranscriptSegment(
+                    transcript_id=transcript.id,
+                    channel_role=role,
+                    start_ms=seg.start_ms,
+                    end_ms=seg.end_ms,
+                    text=seg.text,
+                    language=seg.language,
+                    confidence=seg.confidence,
+                )
+                for role, seg in segments
+            )
 
         stmt = pg_insert(SttUsage).values(
             day=datetime.now(UTC).date(),

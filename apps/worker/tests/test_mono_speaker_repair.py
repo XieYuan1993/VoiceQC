@@ -55,3 +55,15 @@ def test_repair_mono_transcript_keeps_original_on_failure(monkeypatch):
         )
         == original
     )
+
+
+def test_parse_repaired_speaker_turns() -> None:
+    assert mono_speaker_repair.parse_repaired_speaker_turns(
+        "[00:01] broker: 請問戶口號碼\n"
+        "[00:03] customer: 123456\n"
+        "[61:02] unknown: line after one hour"
+    ) == [
+        ("broker", 1_000, "請問戶口號碼"),
+        ("customer", 3_000, "123456"),
+        ("unknown", 3_662_000, "line after one hour"),
+    ]

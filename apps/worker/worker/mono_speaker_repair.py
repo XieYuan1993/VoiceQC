@@ -17,7 +17,11 @@ from voiceqa_shared.llm_usage import record_llm_usage_sync
 from worker.llm import factory
 from worker.settings import settings
 
-_LINE_RE = re.compile(r"^\[(?P<ts>\d{2}:\d{2})\]\s*mixed:\s*(?P<text>.*)$")
+_LINE_RE = re.compile(r"^\[(?P<ts>\d+:\d{2})\]\s*mixed:\s*(?P<text>.*)$")
+_REPAIRED_LINE_RE = re.compile(
+    r"^\[(?P<minutes>\d+):(?P<seconds>\d{2})\]\s*"
+    r"(?P<speaker>broker|customer|unknown):\s*(?P<text>.*)$"
+)
 
 _SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -71,6 +75,20 @@ Transcript:
 """.strip()
 
 
+def parse_repaired_speaker_turns(transcript_text: str) -> list[tuple[str, int, str]]:
+    """Parse repaired display text into role, start_ms and text tuples."""
+    turns: list[tuple[str, int, str]] = []
+    for line in transcript_text.splitlines():
+        match = _REPAIRED_LINE_RE.fullmatch(line.strip())
+        if match is None or not match.group("text").strip():
+            continue
+        start_ms = (
+            int(match.group("minutes")) * 60 + int(match.group("seconds"))
+        ) * 1000
+        turns.append((match.group("speaker"), start_ms, match.group("text").strip()))
+    return turns
+
+
 def repair_mono_transcript(
     transcript_text: str,
     *,
@@ -110,7 +128,7 @@ def repair_mono_transcript(
         text = str(item.get("text") or "").strip()
         if speaker not in {"broker", "customer", "unknown"} or not text:
             continue
-        if not re.fullmatch(r"\d{2}:\d{2}", ts):
+        if not re.fullmatch(r"\d+:\d{2}", ts):
             match = _LINE_RE.search(text)
             ts = match.group("ts") if match else "00:00"
         out.append(f"[{ts}] {speaker}: {text}")
