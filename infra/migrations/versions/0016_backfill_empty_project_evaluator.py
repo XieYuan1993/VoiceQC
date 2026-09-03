@@ -7,7 +7,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 from voiceqa_shared.project_defaults import DEFAULT_EVAL_CRITERIA, DEFAULT_EXTRACTION_FIELDS
 
-revision = "0016_backfill_empty_project_evaluator"
+revision = "0016_backfill_evaluator"
 down_revision = "0015_bulk_batch_rerun"
 branch_labels = None
 depends_on = None
