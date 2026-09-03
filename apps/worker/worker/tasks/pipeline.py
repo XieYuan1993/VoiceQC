@@ -15,6 +15,7 @@ import re
 import tempfile
 import uuid
 from datetime import UTC, datetime
+from difflib import SequenceMatcher
 from functools import lru_cache
 from pathlib import Path
 
@@ -393,6 +394,38 @@ def _interleave_turns(seg_pairs: list[tuple[str, object]]) -> list[tuple[str, in
     return out
 
 
+def _collapse_duplicate_role_channels(
+    segments: list[tuple[str, object]],
+) -> tuple[list[tuple[str, object]], bool]:
+    """Treat dual-mono audio as mono when both channel transcripts are the same.
+
+    Some recorders encode the same mixed call on both sides of a stereo file. In
+    that case channel labels are not speaker labels; keeping both would duplicate
+    every utterance and falsely assign it to both parties.
+    """
+    by_role: dict[str, list[object]] = {"broker": [], "customer": []}
+    for role, segment in segments:
+        if role in by_role:
+            by_role[role].append(segment)
+    if not by_role["broker"] or not by_role["customer"]:
+        return segments, False
+
+    def normalized(role: str) -> str:
+        text = "".join(str(segment.text) for segment in by_role[role])
+        return "".join(char.casefold() for char in text if char.isalnum())
+
+    broker_text = normalized("broker")
+    customer_text = normalized("customer")
+    if min(len(broker_text), len(customer_text)) < 20:
+        return segments, False
+    # Cap comparison work for unusually long calls; the opening 20k normalized
+    # characters are ample to identify a duplicated channel.
+    if SequenceMatcher(None, broker_text[:20_000], customer_text[:20_000]).ratio() < 0.9:
+        return segments, False
+
+    return [("mixed", segment) for segment in by_role["broker"]], True
+
+
 @app.task(name="voiceqa.pipeline.transcribe", bind=True, max_retries=None)
 def transcribe(
     self,
@@ -519,13 +552,22 @@ def transcribe(
             _fail(recording_id, "stt", RuntimeError("; ".join(errors)[:1000]))
             return
 
+        segments, duplicate_role_channels = _collapse_duplicate_role_channels(segments)
+        if duplicate_role_channels:
+            logger.info(
+                "recording {} has duplicate stereo channel transcripts; applying mono speaker repair",
+                recording_id,
+            )
+
         lines = []
         for role, start_ms, text in _interleave_turns(segments):
             mm, ss = divmod(start_ms // 1000, 60)
             lines.append(f"[{mm:02d}:{ss:02d}] {role}: {_spoken_digits_to_arabic(text)}")
         full_text = "\n".join(lines)
 
-        is_mono_mixed = bool(rec.gcs_uri_mono and not rec.gcs_uri_broker and not rec.gcs_uri_customer)
+        is_mono_mixed = duplicate_role_channels or bool(
+            rec.gcs_uri_mono and not rec.gcs_uri_broker and not rec.gcs_uri_customer
+        )
         if is_mono_mixed and get_setting(session, project_id, "asr.mono_speaker_repair", True):
             repair_model = get_setting(
                 session,

@@ -14,7 +14,15 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from voiceqa_shared.audit import log_audit
-from voiceqa_shared.db_models import AppSetting, Project, Recording, User
+from voiceqa_shared.db_models import (
+    AppSetting,
+    EvalCriterion,
+    ExtractionField,
+    Project,
+    Recording,
+    User,
+)
+from voiceqa_shared.project_defaults import DEFAULT_EVAL_CRITERIA, DEFAULT_EXTRACTION_FIELDS
 
 from app.db import get_session
 from app.deps import ClientMeta, client_meta
@@ -40,6 +48,8 @@ NEW_PROJECT_SETTINGS: dict[str, object] = {
     "asr.language_mode": "auto",
     "asr.adaptation": "off",
     "asr.adaptation_boost": 5,
+    "asr.mono_speaker_repair": True,
+    "asr.mono_speaker_repair_model": "gemini-3.5-flash",
     "llm.model": "gemini-3.5-flash",
     "retention.days": 365,
     "budget.llm_daily_tokens": 10_000_000,
@@ -111,6 +121,10 @@ async def create_project(
     await session.flush()
     for skey, sval in NEW_PROJECT_SETTINGS.items():
         session.add(AppSetting(project_id=project.id, key=skey, value=sval))
+    session.add_all(EvalCriterion(project_id=project.id, **row) for row in DEFAULT_EVAL_CRITERIA)
+    session.add_all(
+        ExtractionField(project_id=project.id, **row) for row in DEFAULT_EXTRACTION_FIELDS
+    )
     log_audit(
         session, action="project.create", user_id=user.id, actor_email=user.email,
         object_type="project", object_id=str(project.id), details={"slug": project.slug},
