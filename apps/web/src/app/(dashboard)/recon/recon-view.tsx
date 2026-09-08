@@ -158,7 +158,7 @@ function StatTile({
   return <div className="rounded-lg border bg-card p-3">{inner}</div>;
 }
 
-export function ReconView({ canManage }: { canManage: boolean }) {
+export function ReconView({ canManage, projectId }: { canManage: boolean; projectId: string }) {
   const [runs, setRuns] = React.useState<ReconRun[] | null>(null);
   const [runsError, setRunsError] = React.useState<string | null>(null);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
@@ -183,7 +183,9 @@ export function ReconView({ canManage }: { canManage: boolean }) {
 
   const loadRuns = React.useCallback(async () => {
     try {
-      const list = await apiCall("/api/recon/runs", "get");
+      const list = await apiCall("/api/recon/runs", "get", {
+        params: { query: { project_id: projectId } },
+      });
       runsRef.current = list;
       setRuns(list);
       setRunsError(null);
@@ -191,7 +193,7 @@ export function ReconView({ canManage }: { canManage: boolean }) {
       // Keep stale data on transient poll failures.
       if (runsRef.current === null) setRunsError(getApiErrorMessage(e));
     }
-  }, []);
+  }, [projectId]);
 
   React.useEffect(() => {
     void loadRuns();
@@ -259,6 +261,7 @@ export function ReconView({ canManage }: { canManage: boolean }) {
             match_status: matchStatus || undefined,
             severity: severity || undefined,
             unmatched_reason: unmatchedReason || undefined,
+            project_id: projectId,
             page,
             page_size: ITEMS_PAGE_SIZE,
           },
@@ -269,7 +272,7 @@ export function ReconView({ canManage }: { canManage: boolean }) {
     } catch (e) {
       setItemsError(getApiErrorMessage(e));
     }
-  }, [selectedId, tab, page, matchStatus, severity, unmatchedReason]);
+  }, [selectedId, tab, page, matchStatus, severity, unmatchedReason, projectId]);
 
   React.useEffect(() => {
     setItems(null);
@@ -284,6 +287,7 @@ export function ReconView({ canManage }: { canManage: boolean }) {
     setActionError(null);
     try {
       const run = await apiCall("/api/recon/runs", "post", {
+        params: { query: { project_id: projectId } },
         body: {
           trade_date_from: range.from,
           trade_date_to: range.to,
@@ -312,7 +316,8 @@ export function ReconView({ canManage }: { canManage: boolean }) {
     setExporting(true);
     setActionError(null);
     try {
-      const res = await fetch(`${API_URL}/api/recon/runs/${selected.id}/export.csv`, {
+      const query = new URLSearchParams({ project_id: projectId });
+      const res = await fetch(`${API_URL}/api/recon/runs/${selected.id}/export.csv?${query}`, {
         credentials: "include",
       });
       if (!res.ok) throw new Error(`Export failed (HTTP ${res.status})`);
@@ -878,6 +883,7 @@ export function ReconView({ canManage }: { canManage: boolean }) {
         <ReviewDrawer
           key={drawerItem.id}
           item={drawerItem}
+          projectId={projectId}
           runTradeDate={selected.trade_date_from || selected.trade_date}
           canReview={canManage}
           onClose={() => setDrawerId(null)}

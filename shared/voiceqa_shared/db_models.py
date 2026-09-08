@@ -796,6 +796,11 @@ class ReconRun(Base):
         primary_key=True,
         server_default=text("gen_random_uuid()"),
     )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     trade_date: Mapped[date] = mapped_column(Date, nullable=False)
     status: Mapped[str] = mapped_column(
         Text, nullable=False, server_default=text("'running'")
@@ -810,7 +815,10 @@ class ReconRun(Base):
     started_at: Mapped[datetime] = _now()
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    __table_args__ = (Index("ix_recon_runs_trade_date", "trade_date"),)
+    __table_args__ = (
+        Index("ix_recon_runs_project_id_started_at", "project_id", "started_at"),
+        Index("ix_recon_runs_trade_date", "trade_date"),
+    )
 
 
 class ReconItem(Base):

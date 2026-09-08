@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from voiceqa_shared.audit import log_audit
 from voiceqa_shared.db_models import (
     AppSetting,
+    Evaluation,
     ReconItem,
     ReconRun,
     Recording,
@@ -104,7 +105,12 @@ async def build_recon_run(
         "phone_only": settings_rows.get("recon.phone_only", True),
         "transaction_filters": {"order_statuses": list(RECON_ORDER_STATUSES)},
     }
-    run = ReconRun(trade_date=trade_date, params_snapshot=snapshot, started_by=started_by)
+    run = ReconRun(
+        project_id=project_id,
+        trade_date=trade_date,
+        params_snapshot=snapshot,
+        started_by=started_by,
+    )
     session.add(run)
     await session.flush()
     return run
@@ -176,35 +182,65 @@ async def create_run(
 
 @router.get("/runs", response_model=list[ReconRunOut])
 async def list_runs(
+    project_id: uuid.UUID = Depends(resolve_project_id),
     user: User = Depends(require(TXNS_READ)),
     session: AsyncSession = Depends(get_session),
 ) -> list[ReconRunOut]:
     rows = (
-        await session.execute(select(ReconRun).order_by(ReconRun.started_at.desc()).limit(50))
+        await session.execute(
+            select(ReconRun)
+            .where(ReconRun.project_id == project_id)
+            .order_by(ReconRun.started_at.desc())
+            .limit(50)
+        )
     ).scalars()
     return [_run_out(r) for r in rows]
+
+
+async def _get_run(
+    session: AsyncSession, run_id: uuid.UUID, project_id: uuid.UUID
+) -> ReconRun:
+    run = (
+        await session.execute(
+            select(ReconRun).where(
+                ReconRun.id == run_id,
+                ReconRun.project_id == project_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if run is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "run not found")
+    return run
 
 
 @router.get("/runs/{run_id}", response_model=ReconRunOut)
 async def get_run(
     run_id: uuid.UUID,
+    project_id: uuid.UUID = Depends(resolve_project_id),
     user: User = Depends(require(TXNS_READ)),
     session: AsyncSession = Depends(get_session),
 ) -> ReconRunOut:
-    run = await session.get(ReconRun, run_id)
-    if run is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "run not found")
+    run = await _get_run(session, run_id, project_id)
     return _run_out(run)
 
 
-async def _item_out(session: AsyncSession, item: ReconItem) -> ReconItemOut:
+async def _item_out(
+    session: AsyncSession, item: ReconItem, project_id: uuid.UUID
+) -> ReconItemOut:
     txn = await session.get(Transaction, item.transaction_id) if item.transaction_id else None
-    rec = await session.get(Recording, item.recording_id) if item.recording_id else None
-    instr = (
-        await session.get(TradeInstruction, item.trade_instruction_id)
-        if item.trade_instruction_id
-        else None
-    )
+    rec = None
+    if item.recording_id:
+        rec = (
+            await session.execute(
+                select(Recording).where(
+                    Recording.id == item.recording_id,
+                    Recording.project_id == project_id,
+                )
+            )
+        ).scalar_one_or_none()
+    instr = None
+    if rec is not None and item.trade_instruction_id:
+        instr = await session.get(TradeInstruction, item.trade_instruction_id)
     txn_raw = txn.raw if txn is not None and isinstance(txn.raw, dict) else {}
 
     def raw_number(key: str, fallback) -> float | None:
@@ -271,9 +307,11 @@ async def list_items(
     ),
     page: int = 1,
     page_size: int = 50,
+    project_id: uuid.UUID = Depends(resolve_project_id),
     user: User = Depends(require(TXNS_READ)),
     session: AsyncSession = Depends(get_session),
 ) -> ReconItemListOut:
+    await _get_run(session, run_id, project_id)
     page, page_size = max(1, page), min(max(1, page_size), 200)
     stmt = select(ReconItem).where(ReconItem.run_id == run_id)
     if bucket:
@@ -297,15 +335,26 @@ async def list_items(
         .all()
     )
     return ReconItemListOut(
-        items=[await _item_out(session, i) for i in rows],
+        items=[await _item_out(session, i, project_id) for i in rows],
         total=total,
         page=page,
         page_size=page_size,
     )
 
 
-async def _get_item(session: AsyncSession, item_id: uuid.UUID) -> ReconItem:
-    item = await session.get(ReconItem, item_id)
+async def _get_item(
+    session: AsyncSession, item_id: uuid.UUID, project_id: uuid.UUID
+) -> ReconItem:
+    item = (
+        await session.execute(
+            select(ReconItem)
+            .join(ReconRun, ReconRun.id == ReconItem.run_id)
+            .where(
+                ReconItem.id == item_id,
+                ReconRun.project_id == project_id,
+            )
+        )
+    ).scalar_one_or_none()
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "item not found")
     return item
@@ -341,32 +390,35 @@ async def _review(
 async def confirm_item(
     item_id: uuid.UUID,
     payload: ReviewNoteIn,
+    project_id: uuid.UUID = Depends(resolve_project_id),
     user: User = Depends(require(RECON_REVIEW)),
     session: AsyncSession = Depends(get_session),
     meta: ClientMeta = Depends(client_meta),
 ) -> ReconItemOut:
-    item = await _get_item(session, item_id)
+    item = await _get_item(session, item_id, project_id)
     await _review(session, item, user, meta, "confirmed", payload.note)
-    return await _item_out(session, item)
+    return await _item_out(session, item, project_id)
 
 
 @router.post("/items/{item_id}/reject", response_model=ReconItemOut)
 async def reject_item(
     item_id: uuid.UUID,
     payload: ReviewNoteIn,
+    project_id: uuid.UUID = Depends(resolve_project_id),
     user: User = Depends(require(RECON_REVIEW)),
     session: AsyncSession = Depends(get_session),
     meta: ClientMeta = Depends(client_meta),
 ) -> ReconItemOut:
-    item = await _get_item(session, item_id)
+    item = await _get_item(session, item_id, project_id)
     await _review(session, item, user, meta, "rejected", payload.note)
-    return await _item_out(session, item)
+    return await _item_out(session, item, project_id)
 
 
 @router.post("/items/{item_id}/manual-link", response_model=ReconItemOut)
 async def manual_link(
     item_id: uuid.UUID,
     payload: ManualLinkIn,
+    project_id: uuid.UUID = Depends(resolve_project_id),
     user: User = Depends(require(RECON_REVIEW)),
     session: AsyncSession = Depends(get_session),
     meta: ClientMeta = Depends(client_meta),
@@ -377,9 +429,28 @@ async def manual_link(
     recording_no_txn item gains a transaction. Sibling items in the same run
     referencing the counterpart are resolved as manual_linked too.
     """
-    item = await _get_item(session, item_id)
+    item = await _get_item(session, item_id, project_id)
     if payload.transaction_id is None and item.transaction_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "transaction_id required for this item")
+
+    recording_project_id = (
+        await session.execute(
+            select(Recording.project_id).where(Recording.id == payload.recording_id)
+        )
+    ).scalar_one_or_none()
+    if recording_project_id != project_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "recording not found")
+    if payload.trade_instruction_id is not None:
+        instruction_project_id = (
+            await session.execute(
+                select(Recording.project_id)
+                .join(Evaluation, Evaluation.recording_id == Recording.id)
+                .join(TradeInstruction, TradeInstruction.evaluation_id == Evaluation.id)
+                .where(TradeInstruction.id == payload.trade_instruction_id)
+            )
+        ).scalar_one_or_none()
+        if instruction_project_id != project_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "trade instruction not found")
 
     item.recording_id = payload.recording_id
     if payload.transaction_id is not None:
@@ -411,19 +482,18 @@ async def manual_link(
         sibling.reviewed_at = datetime.now(UTC)
 
     await _review(session, item, user, meta, "manual_linked", payload.note)
-    return await _item_out(session, item)
+    return await _item_out(session, item, project_id)
 
 
 @router.get("/runs/{run_id}/export.csv")
 async def export_run(
     run_id: uuid.UUID,
+    project_id: uuid.UUID = Depends(resolve_project_id),
     user: User = Depends(require(TXNS_READ)),
     session: AsyncSession = Depends(get_session),
     meta: ClientMeta = Depends(client_meta),
 ):
-    run = await session.get(ReconRun, run_id)
-    if run is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "run not found")
+    run = await _get_run(session, run_id, project_id)
     items = (
         (
             await session.execute(
@@ -454,7 +524,7 @@ async def export_run(
         ]
     )
     for item in items:
-        out = await _item_out(session, item)
+        out = await _item_out(session, item, project_id)
         txn, rec, instr = out.transaction, out.recording, out.instruction
         writer.writerow(
             [

@@ -193,10 +193,12 @@ function ScoreBreakdownBars({ breakdown }: { breakdown: Breakdown }) {
 
 function ManualLinkPicker({
   tradeDate,
+  projectId,
   pending,
   onLink,
 }: {
   tradeDate: string;
+  projectId: string;
   pending: boolean;
   onLink: (recordingId: string) => void;
 }) {
@@ -209,7 +211,7 @@ function ManualLinkPicker({
     void (async () => {
       try {
         const list = await apiCall("/api/recordings", "get", {
-          params: { query: { call_date: tradeDate, page_size: 50 } },
+          params: { query: { project_id: projectId, call_date: tradeDate, page_size: 50 } },
         });
         if (!cancelled) setRecordings(list);
       } catch (e) {
@@ -219,7 +221,7 @@ function ManualLinkPicker({
     return () => {
       cancelled = true;
     };
-  }, [tradeDate]);
+  }, [tradeDate, projectId]);
 
   if (error !== null) {
     return <p className="text-sm text-destructive">Failed to load recordings: {error}</p>;
@@ -386,12 +388,14 @@ function TransactionPicker({
 
 export function ReviewDrawer({
   item,
+  projectId,
   runTradeDate,
   canReview,
   onClose,
   onUpdated,
 }: {
   item: ReconItem;
+  projectId: string;
   runTradeDate: string;
   canReview: boolean;
   onClose: () => void;
@@ -418,7 +422,10 @@ export function ReviewDrawer({
       const updated = await apiCall(
         action === "confirm" ? "/api/recon/items/{item_id}/confirm" : "/api/recon/items/{item_id}/reject",
         "post",
-        { params: { path: { item_id: item.id } }, body: { note: note.trim() || null } },
+        {
+          params: { path: { item_id: item.id }, query: { project_id: projectId } },
+          body: { note: note.trim() || null },
+        },
       );
       onUpdated(updated);
     } catch (e) {
@@ -433,7 +440,7 @@ export function ReviewDrawer({
     setError(null);
     try {
       const updated = await apiCall("/api/recon/items/{item_id}/manual-link", "post", {
-        params: { path: { item_id: item.id } },
+        params: { path: { item_id: item.id }, query: { project_id: projectId } },
         body: {
           recording_id: recordingId,
           trade_instruction_id: instructionId ?? null,
@@ -456,7 +463,7 @@ export function ReviewDrawer({
     setError(null);
     try {
       const updated = await apiCall("/api/recon/items/{item_id}/manual-link", "post", {
-        params: { path: { item_id: item.id } },
+        params: { path: { item_id: item.id }, query: { project_id: projectId } },
         body: {
           recording_id: rec.id,
           transaction_id: transactionId,
@@ -821,6 +828,7 @@ export function ReviewDrawer({
                 </p>
                 <ManualLinkPicker
                   tradeDate={runTradeDate}
+                  projectId={projectId}
                   pending={pending === "link"}
                   onLink={(rid) => void onManualLink(rid)}
                 />

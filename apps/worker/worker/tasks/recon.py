@@ -82,7 +82,7 @@ def enqueue_recon_run(session, trade_date) -> str | None:
         "phone_only": rows.get("recon.phone_only", True),
         "transaction_filters": {"order_statuses": list(RECON_ORDER_STATUSES)},
     }
-    run = ReconRun(trade_date=trade_date, params_snapshot=snapshot)
+    run = ReconRun(project_id=project.id, trade_date=trade_date, params_snapshot=snapshot)
     session.add(run)
     session.flush()
     run_id = str(run.id)
@@ -308,6 +308,7 @@ def _date_range_from_snapshot(trade_date: date, snapshot: dict | None) -> tuple[
 
 def _load_views(
     session,
+    project_id,
     trade_date_from,
     trade_date_to=None,
     transaction_filters: dict | None = None,
@@ -346,6 +347,7 @@ def _load_views(
     recordings = (
         session.execute(
             select(Recording).where(
+                Recording.project_id == project_id,
                 Recording.status == "completed",
                 Recording.call_started_at >= rec_start,
                 Recording.call_started_at < rec_end,
@@ -515,6 +517,7 @@ def _carry_forward_map(session, run: ReconRun) -> dict[tuple, ReconItem]:
     prev = session.execute(
         select(ReconRun)
         .where(
+            ReconRun.project_id == run.project_id,
             ReconRun.trade_date == run.trade_date,
             ReconRun.id != run.id,
             ReconRun.status == "completed",
@@ -566,6 +569,7 @@ def run(self, run_id: str) -> None:
             )
             txns, instrs, zero_instr, recovered_stock_count, recording_contexts = _load_views(
                 session,
+                recon_run.project_id,
                 trade_date_from,
                 trade_date_to,
                 (recon_run.params_snapshot or {}).get("transaction_filters"),
@@ -580,7 +584,10 @@ def run(self, run_id: str) -> None:
                 broker_extensions.setdefault(engine.fold(broker.name), set()).update(extensions)
             alias_map: dict[str, str] = {}
             for term in session.execute(
-                select(IndustryTerm).where(IndustryTerm.active.is_(True))
+                select(IndustryTerm).where(
+                    IndustryTerm.project_id == recon_run.project_id,
+                    IndustryTerm.active.is_(True),
+                )
             ).scalars():
                 if term.stock_code:
                     for name in [term.canonical, *(term.aliases or [])]:
