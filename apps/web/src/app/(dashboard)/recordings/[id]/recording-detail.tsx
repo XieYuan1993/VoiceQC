@@ -193,10 +193,12 @@ function SegmentBubble({
 
 export function RecordingDetailView({
   recordingId,
+  projectId,
   canManage,
   canReview,
 }: {
   recordingId: string;
+  projectId: string;
   canManage: boolean;
   canReview: boolean;
 }) {
@@ -221,7 +223,7 @@ export function RecordingDetailView({
   const loadRecording = React.useCallback(async () => {
     try {
       const r = await apiCall("/api/recordings/{recording_id}", "get", {
-        params: { path: { recording_id: recordingId } },
+        params: { path: { recording_id: recordingId }, query: { project_id: projectId } },
       });
       recRef.current = r;
       setRec(r);
@@ -229,12 +231,12 @@ export function RecordingDetailView({
     } catch (e) {
       if (recRef.current === null) setLoadError(getApiErrorMessage(e));
     }
-  }, [recordingId]);
+  }, [projectId, recordingId]);
 
   const loadTranscript = React.useCallback(async () => {
     try {
       const t = await apiCall("/api/recordings/{recording_id}/transcript", "get", {
-        params: { path: { recording_id: recordingId } },
+        params: { path: { recording_id: recordingId }, query: { project_id: projectId } },
       });
       setTranscript(t);
       setTranscriptMissing(false);
@@ -248,7 +250,7 @@ export function RecordingDetailView({
         setTranscriptError(getApiErrorMessage(e));
       }
     }
-  }, [recordingId]);
+  }, [projectId, recordingId]);
 
   React.useEffect(() => {
     void loadRecording();
@@ -355,7 +357,10 @@ export function RecordingDetailView({
     setReprocessing(true);
     try {
       await apiCall("/api/recordings/{recording_id}/reprocess", "post", {
-        params: { path: { recording_id: recordingId }, query: { from_stage: fromStage } },
+        params: {
+          path: { recording_id: recordingId },
+          query: { from_stage: fromStage, project_id: projectId },
+        },
       });
       setNotice(`Reprocess queued (from ${fromStage}).`);
       await loadRecording();
@@ -518,7 +523,7 @@ export function RecordingDetailView({
               controls
               crossOrigin="use-credentials"
               preload="metadata"
-              src={`${API_URL}/api/recordings/${recordingId}/audio`}
+              src={`${API_URL}/api/recordings/${recordingId}/audio?project_id=${encodeURIComponent(projectId)}`}
               className="w-full"
             />
           </CardContent>
@@ -527,6 +532,7 @@ export function RecordingDetailView({
 
       <EvaluationPanel
         recordingId={recordingId}
+        projectId={projectId}
         recordingStatus={rec.status}
         canReview={canReview}
         onJump={jumpToEvidence}

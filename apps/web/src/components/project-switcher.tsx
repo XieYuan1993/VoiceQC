@@ -70,6 +70,7 @@ export function ProjectSwitcher({
     setOpen(false);
     if (id === activeId) return;
     setActiveProject(id);
+    router.push("/dashboard");
     router.refresh();
   }
 
@@ -142,6 +143,7 @@ export function ProjectSwitcher({
           onCreated={(p) => {
             setDialogOpen(false);
             setActiveProject(p.id);
+            router.push("/dashboard");
             router.refresh();
           }}
         />

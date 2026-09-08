@@ -467,11 +467,18 @@ async def export_recordings(
 
 
 async def _get_scoped(
-    session: AsyncSession, user: User, recording_id: uuid.UUID
+    session: AsyncSession,
+    user: User,
+    recording_id: uuid.UUID,
+    project_id: uuid.UUID,
 ) -> Recording:
     extensions = await _scope_extensions(session, user)
     rec = await session.get(Recording, recording_id)
-    if rec is None or (extensions is not None and rec.broker_ext not in extensions):
+    if (
+        rec is None
+        or rec.project_id != project_id
+        or (extensions is not None and rec.broker_ext not in extensions)
+    ):
         # 404, not 403 — don't leak existence to out-of-scope brokers.
         raise HTTPException(status.HTTP_404_NOT_FOUND, "recording not found")
     return rec
@@ -480,10 +487,11 @@ async def _get_scoped(
 @router.get("/{recording_id}", response_model=RecordingDetail)
 async def get_recording(
     recording_id: uuid.UUID,
+    project_id: uuid.UUID = Depends(resolve_project_id),
     user: User = Depends(current_user),
     session: AsyncSession = Depends(get_session),
 ) -> RecordingDetail:
-    rec = await _get_scoped(session, user, recording_id)
+    rec = await _get_scoped(session, user, recording_id, project_id)
     has_transcript = (
         await session.execute(
             select(Transcript.id).where(Transcript.recording_id == rec.id)
@@ -504,11 +512,12 @@ async def get_recording(
 @router.get("/{recording_id}/transcript", response_model=TranscriptOut)
 async def get_transcript(
     recording_id: uuid.UUID,
+    project_id: uuid.UUID = Depends(resolve_project_id),
     user: User = Depends(require(TRANSCRIPTS_READ)),
     session: AsyncSession = Depends(get_session),
     meta: ClientMeta = Depends(client_meta),
 ) -> TranscriptOut:
-    rec = await _get_scoped(session, user, recording_id)
+    rec = await _get_scoped(session, user, recording_id, project_id)
     transcript = (
         await session.execute(select(Transcript).where(Transcript.recording_id == rec.id))
     ).scalar_one_or_none()
@@ -558,6 +567,7 @@ _RANGE_RE = re.compile(r"bytes=(\d+)-(\d*)")
 @router.get("/{recording_id}/audio")
 async def get_audio(
     recording_id: uuid.UUID,
+    project_id: uuid.UUID = Depends(resolve_project_id),
     range_header: str | None = Header(default=None, alias="Range"),
     user: User = Depends(current_user),
     session: AsyncSession = Depends(get_session),
@@ -570,7 +580,7 @@ async def get_audio(
     <audio> element loads it; a cross-origin redirect to GCS fails credentialed
     CORS. (Signed-URL offload would require a separate fetch-then-set-src flow.)
     """
-    rec = await _get_scoped(session, user, recording_id)
+    rec = await _get_scoped(session, user, recording_id, project_id)
     if not rec.gcs_uri_raw:
         raise HTTPException(status.HTTP_410_GONE, "audio purged by retention policy")
     log_audit(
@@ -616,11 +626,12 @@ async def get_audio(
 async def reprocess(
     recording_id: uuid.UUID,
     from_stage: str = Query(default="convert", pattern="^(convert|stt|eval)$"),
+    project_id: uuid.UUID = Depends(resolve_project_id),
     user: User = Depends(require(BATCHES_MANAGE)),
     session: AsyncSession = Depends(get_session),
     meta: ClientMeta = Depends(client_meta),
 ) -> RecordingOut:
-    rec = await _get_scoped(session, user, recording_id)
+    rec = await _get_scoped(session, user, recording_id, project_id)
     if rec.status in ("converting", "transcribing", "evaluating"):
         raise HTTPException(status.HTTP_409_CONFLICT, f"recording is busy ({rec.status})")
     if from_stage == "stt" and not (rec.gcs_uri_broker or rec.gcs_uri_mono):

@@ -595,10 +595,12 @@ function ConfidenceBar({ value }: { value: number | null }) {
 
 function RerunDialog({
   recordingId,
+  projectId,
   onClose,
   onQueued,
 }: {
   recordingId: string;
+  projectId: string;
   onClose: () => void;
   onQueued: () => void;
 }) {
@@ -610,7 +612,7 @@ function RerunDialog({
     setError(null);
     try {
       await apiCall("/api/recordings/{recording_id}/evaluations", "post", {
-        params: { path: { recording_id: recordingId } },
+        params: { path: { recording_id: recordingId }, query: { project_id: projectId } },
       });
       onQueued();
     } catch (e) {
@@ -651,11 +653,13 @@ function RerunDialog({
 
 function ReviewDialog({
   evaluation,
+  projectId,
   action,
   onClose,
   onSaved,
 }: {
   evaluation: Evaluation;
+  projectId: string;
   action: "approve" | "override";
   onClose: () => void;
   onSaved: (updated: Evaluation) => void;
@@ -670,7 +674,7 @@ function ReviewDialog({
     setError(null);
     try {
       const updated = await apiCall("/api/evaluations/{evaluation_id}/review", "post", {
-        params: { path: { evaluation_id: evaluation.id } },
+        params: { path: { evaluation_id: evaluation.id }, query: { project_id: projectId } },
         body: { action, note: note.trim() === "" ? null : note.trim() },
       });
       onSaved(updated);
@@ -724,12 +728,14 @@ function ReviewDialog({
 
 function OverrideResultDialog({
   evaluationId,
+  projectId,
   result,
   scoreType,
   onClose,
   onSaved,
 }: {
   evaluationId: string;
+  projectId: string;
   result: EvaluationResult;
   scoreType: string;
   onClose: () => void;
@@ -759,6 +765,7 @@ function OverrideResultDialog({
         {
           params: {
             path: { evaluation_id: evaluationId, criterion_key: result.criterion_key },
+            query: { project_id: projectId },
           },
           body: isScale
             ? { score: Number(score), note: note.trim() === "" ? null : note.trim() }
@@ -1035,12 +1042,14 @@ function TradesTable({ trades, onJump }: { trades: Trade[]; onJump: (ms: number)
 
 export function EvaluationPanel({
   recordingId,
+  projectId,
   recordingStatus,
   canReview,
   onJump,
   onRecordingChanged,
 }: {
   recordingId: string;
+  projectId: string;
   recordingStatus: string;
   canReview: boolean;
   /** Seek the audio player and flash the matching transcript segment. */
@@ -1061,14 +1070,14 @@ export function EvaluationPanel({
   const load = React.useCallback(async () => {
     try {
       const list = await apiCall("/api/recordings/{recording_id}/evaluations", "get", {
-        params: { path: { recording_id: recordingId } },
+        params: { path: { recording_id: recordingId }, query: { project_id: projectId } },
       });
       setEvals(list);
       setLoadError(null);
     } catch (e) {
       setLoadError(getApiErrorMessage(e));
     }
-  }, [recordingId]);
+  }, [projectId, recordingId]);
 
   // Fetch on mount and on every pipeline-status change (an evaluation
   // finishing flips the recording back to completed); poll while evaluating.
@@ -1604,6 +1613,7 @@ export function EvaluationPanel({
       {rerunOpen && (
         <RerunDialog
           recordingId={recordingId}
+          projectId={projectId}
           onClose={() => setRerunOpen(false)}
           onQueued={() => {
             setRerunOpen(false);
@@ -1617,6 +1627,7 @@ export function EvaluationPanel({
       {review !== null && selected !== null && (
         <ReviewDialog
           evaluation={selected}
+          projectId={projectId}
           action={review}
           onClose={() => setReview(null)}
           onSaved={(updated) => {
@@ -1629,6 +1640,7 @@ export function EvaluationPanel({
       {overrideTarget !== null && selected !== null && (
         <OverrideResultDialog
           evaluationId={selected.id}
+          projectId={projectId}
           result={overrideTarget}
           scoreType={resolveScoreType(overrideTarget, snapshotScoreTypes(selected))}
           onClose={() => setOverrideTarget(null)}

@@ -12,6 +12,7 @@ from voiceqa_shared.audit import log_audit
 from voiceqa_shared.db_models import (
     Evaluation,
     EvaluationResult,
+    Recording,
     TradeInstruction,
     Transcript,
     UploadBatch,
@@ -20,7 +21,7 @@ from voiceqa_shared.db_models import (
 
 from app import queue
 from app.db import get_session
-from app.deps import ClientMeta, client_meta
+from app.deps import ClientMeta, client_meta, resolve_project_id
 from app.permissions import EVALS_REVIEW, TRANSCRIPTS_READ, require
 from app.routers.recordings import _get_scoped
 from app.schemas import (
@@ -34,6 +35,23 @@ from app.schemas import (
 )
 
 router = APIRouter(prefix="/api", tags=["evaluations"])
+
+
+async def _get_project_evaluation(
+    session: AsyncSession,
+    evaluation_id: uuid.UUID,
+    project_id: uuid.UUID,
+) -> Evaluation:
+    evaluation = (
+        await session.execute(
+            select(Evaluation)
+            .join(Recording, Recording.id == Evaluation.recording_id)
+            .where(Evaluation.id == evaluation_id, Recording.project_id == project_id)
+        )
+    ).scalar_one_or_none()
+    if evaluation is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "evaluation not found")
+    return evaluation
 
 
 def _result_out(r: EvaluationResult) -> ResultOut:
@@ -135,10 +153,11 @@ async def _evaluation_out(session: AsyncSession, ev: Evaluation) -> EvaluationOu
 @router.get("/recordings/{recording_id}/evaluations", response_model=list[EvaluationOut])
 async def list_evaluations(
     recording_id: uuid.UUID,
+    project_id: uuid.UUID = Depends(resolve_project_id),
     user: User = Depends(require(TRANSCRIPTS_READ)),
     session: AsyncSession = Depends(get_session),
 ) -> list[EvaluationOut]:
-    rec = await _get_scoped(session, user, recording_id)
+    rec = await _get_scoped(session, user, recording_id, project_id)
     evaluations = (
         (
             await session.execute(
@@ -156,12 +175,13 @@ async def list_evaluations(
 @router.post("/recordings/{recording_id}/evaluations", response_model=EvalRerunOut)
 async def rerun_evaluation(
     recording_id: uuid.UUID,
+    project_id: uuid.UUID = Depends(resolve_project_id),
     user: User = Depends(require(EVALS_REVIEW)),
     session: AsyncSession = Depends(get_session),
     meta: ClientMeta = Depends(client_meta),
 ) -> EvalRerunOut:
     """Re-evaluate under the CURRENT criteria/fields config (new run_seq)."""
-    rec = await _get_scoped(session, user, recording_id)
+    rec = await _get_scoped(session, user, recording_id, project_id)
     if rec.status in ("uploaded", "converting", "transcribing", "evaluating"):
         raise HTTPException(status.HTTP_409_CONFLICT, f"recording is busy ({rec.status})")
     has_transcript = (
@@ -191,13 +211,12 @@ async def rerun_evaluation(
 async def review_evaluation(
     evaluation_id: uuid.UUID,
     payload: ReviewIn,
+    project_id: uuid.UUID = Depends(resolve_project_id),
     user: User = Depends(require(EVALS_REVIEW)),
     session: AsyncSession = Depends(get_session),
     meta: ClientMeta = Depends(client_meta),
 ) -> EvaluationOut:
-    ev = await session.get(Evaluation, evaluation_id)
-    if ev is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "evaluation not found")
+    ev = await _get_project_evaluation(session, evaluation_id, project_id)
     if ev.status != "completed":
         raise HTTPException(status.HTTP_409_CONFLICT, f"evaluation is {ev.status}")
     ev.review_status = "approved" if payload.action == "approve" else "overridden"
@@ -222,13 +241,12 @@ async def override_result(
     evaluation_id: uuid.UUID,
     criterion_key: str,
     payload: ResultOverrideIn,
+    project_id: uuid.UUID = Depends(resolve_project_id),
     user: User = Depends(require(EVALS_REVIEW)),
     session: AsyncSession = Depends(get_session),
     meta: ClientMeta = Depends(client_meta),
 ) -> EvaluationOut:
-    ev = await session.get(Evaluation, evaluation_id)
-    if ev is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "evaluation not found")
+    ev = await _get_project_evaluation(session, evaluation_id, project_id)
     result = (
         await session.execute(
             select(EvaluationResult).where(
