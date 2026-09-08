@@ -884,6 +884,20 @@ def _generate_structured_stage(
         raise RuntimeError(f"{stage} failed: {exc}") from exc
 
 
+def _output_language_instruction(output_script: str) -> str:
+    if output_script != "traditional":
+        return ""
+    return """
+
+## Output language
+Write every generated, human-readable text value in Traditional Chinese (Hong Kong), including
+summaries, rationales, risk notes, intent, topics, complaint categories, follow-up actions and
+knowledge-base claims. This overrides any earlier instruction to write those values in English.
+Keep JSON property names and schema enum values exactly as specified.
+Evidence quotes must continue to reflect the transcript evidence accurately.
+"""
+
+
 @app.task(name="voiceqa.pipeline.evaluate", bind=True, max_retries=5)
 def evaluate(self, recording_id: str) -> None:
     with _evaluation_recording_lock(recording_id) as acquired:
@@ -1060,6 +1074,7 @@ def _evaluate_locked(self, recording_id: str) -> None:
             trade_module=False,
             kb_context=kb_context,
         )
+        prompt += _output_language_instruction(output_script)
         schema = build_response_schema(
             criteria,
             call_fields,
@@ -1079,15 +1094,18 @@ def _evaluate_locked(self, recording_id: str) -> None:
             candidates = _candidate_securities(session, rec)
             prior_context = _prior_trade_context(session, rec, account_hint)
             trade_prompts = [
-                build_trade_prompt(
-                    rec,
-                    chunk,
-                    terms,
-                    candidates,
-                    chunk_index=index,
-                    chunk_count=len(chunks),
-                    account_hint=account_hint,
-                    prior_context=prior_context,
+                (
+                    build_trade_prompt(
+                        rec,
+                        chunk,
+                        terms,
+                        candidates,
+                        chunk_index=index,
+                        chunk_count=len(chunks),
+                        account_hint=account_hint,
+                        prior_context=prior_context,
+                    )
+                    + _output_language_instruction(output_script)
                 )
                 for index, chunk in enumerate(chunks, 1)
             ]
