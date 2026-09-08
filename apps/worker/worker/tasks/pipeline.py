@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from difflib import SequenceMatcher
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 from celery import chain
 from loguru import logger
@@ -356,6 +357,20 @@ def _apply_output_script(text: str, output_script: str) -> str:
     return text
 
 
+def _apply_output_script_tree(value: Any, output_script: str) -> Any:
+    """Convert every text value in a structured model response."""
+    if isinstance(value, str):
+        return _apply_output_script(value, output_script)
+    if isinstance(value, list):
+        return [_apply_output_script_tree(item, output_script) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: _apply_output_script_tree(item, output_script)
+            for key, item in value.items()
+        }
+    return value
+
+
 def _spoken_digits_to_arabic(text: str) -> str:
     """Render runs of 3+ spoken digit characters as Arabic, digit by digit
     (二零三二九八 -> 203298) — stock codes, account and phone numbers. Qwen's ITN
@@ -590,7 +605,10 @@ def transcribe(
                 "asr.mono_speaker_repair_model",
                 get_setting(session, project_id, "llm.model", settings.VERTEX_LLM_MODEL),
             )
-            full_text = repair_mono_transcript(full_text, model=repair_model, session=session)
+            full_text = _apply_output_script(
+                repair_mono_transcript(full_text, model=repair_model, session=session),
+                output_script,
+            )
             repaired_turns = parse_repaired_speaker_turns(full_text)
 
         # Replace any prior transcript (reprocess path).

@@ -43,7 +43,7 @@ from worker.kb import cosine
 from worker.llm import factory
 from worker.llm.embeddings import Embedder
 from worker.settings import settings
-from worker.tasks.pipeline import _fail
+from worker.tasks.pipeline import _apply_output_script_tree, _fail
 from worker.trade_normalization import (
     MAX_SECURITY_CANDIDATES,
     normalize_stock_code,
@@ -901,6 +901,7 @@ def _evaluate_locked(self, recording_id: str) -> None:
         if rec is None or rec.status != "evaluating":
             return
         project_id = rec.project_id
+        output_script = get_setting(session, project_id, "asr.output_script", "original")
         project = session.get(Project, project_id)
         trade_module = (
             bool((project.modules or {}).get("trade_reconciliation")) if project else False
@@ -1116,6 +1117,8 @@ def _evaluate_locked(self, recording_id: str) -> None:
             in_tok += trade_in_tok
             out_tok += trade_out_tok
         trade_parsed = _merge_trade_outputs(trade_outputs, candidates if trade_module else [])
+        parsed = _apply_output_script_tree(parsed, output_script)
+        trade_parsed = _apply_output_script_tree(trade_parsed, output_script)
     except Exception as e:
         transient = any(
             marker in str(e)
