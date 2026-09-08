@@ -67,6 +67,10 @@ const SELECT_OPTIONS: Record<string, Array<{ value: string; label: string }>> = 
     { value: "cmn-Hans-CN", label: "Mandarin (Simplified)" },
     { value: "en-US", label: "English (US)" },
   ],
+  "asr.output_script": [
+    { value: "traditional", label: "Traditional Chinese" },
+    { value: "original", label: "Provider output" },
+  ],
   "asr.adaptation": [
     { value: "off", label: "Off" },
     { value: "stock_only", label: "Stock terms only" },

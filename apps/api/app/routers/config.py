@@ -32,6 +32,11 @@ def _v_language_mode(v: Any) -> None:
         raise ValueError(f"must be one of {sorted(LANGUAGE_MODES)}")
 
 
+def _v_output_script(v: Any) -> None:
+    if v not in ("original", "traditional"):
+        raise ValueError("must be 'original' or 'traditional'")
+
+
 def _v_nonempty_str(v: Any) -> None:
     if not isinstance(v, str) or not v.strip():
         raise ValueError("must be a non-empty string")
@@ -122,6 +127,7 @@ def _v_boost(v: Any) -> None:
 VALIDATORS: dict[str, Any] = {
     "asr.provider": _v_provider,
     "asr.language_mode": _v_language_mode,
+    "asr.output_script": _v_output_script,
     "asr.model": _v_nonempty_str,
     "asr.adaptation": _v_adaptation,
     "asr.adaptation_boost": _v_boost,

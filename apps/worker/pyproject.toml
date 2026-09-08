@@ -17,6 +17,7 @@ dependencies = [
   "google-genai>=1.16",
   "croniter>=3.0",
   "httpx>=0.27",
+  "opencc-python-reimplemented>=0.1.7",
 ]
 
 [dependency-groups]

@@ -126,6 +126,7 @@ DEFAULT_SETTINGS: dict[str, object] = {
     "asr.provider": "tencent",
     "asr.model": "16k_zh_en",
     "asr.language_mode": "yue-Hant-HK",
+    "asr.output_script": "traditional",
     # Industry terms passed to the ASR as a glossary hint. Safe for Gemini (a
     # prompt hint); on chirp use with care (high boost degrades output).
     "asr.adaptation": "stock_only",

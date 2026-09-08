@@ -46,6 +46,7 @@ NEW_PROJECT_SETTINGS: dict[str, object] = {
     "asr.provider": "tencent",
     "asr.model": "16k_zh_en",
     "asr.language_mode": "auto",
+    "asr.output_script": "traditional",
     "asr.adaptation": "off",
     "asr.adaptation_boost": 5,
     "asr.mono_speaker_repair": True,

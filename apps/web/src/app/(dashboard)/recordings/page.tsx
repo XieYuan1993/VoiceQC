@@ -42,7 +42,8 @@ export default async function RecordingsPage({
   const page = Math.max(1, Number(first(sp.page)) || 1);
 
   const cookie = await cookieHeader();
-  const { id: projectId } = await getActiveProject(cookie);
+  const { id: projectId, project } = await getActiveProject(cookie);
+  const hideAgent = project?.slug === "dyna-day-qa-demo";
   const session = await auth();
   const manage = canManage(session?.user?.role);
 
@@ -122,7 +123,7 @@ export default async function RecordingsPage({
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
                   <TableHead>Filename</TableHead>
-                  <TableHead>Agent</TableHead>
+                  {!hideAgent && <TableHead>Agent</TableHead>}
                   <TableHead>Direction</TableHead>
                   <TableHead>Call time</TableHead>
                   <TableHead className="text-right">Duration</TableHead>
@@ -138,7 +139,7 @@ export default async function RecordingsPage({
                         {r.original_filename}
                       </span>
                     </TableCell>
-                    <TableCell>{r.broker_ext ?? "—"}</TableCell>
+                    {!hideAgent && <TableCell>{r.broker_ext ?? "—"}</TableCell>}
                     <TableCell className="capitalize">{r.direction}</TableCell>
                     <TableCell className="whitespace-nowrap">
                       {formatDateTime(r.call_started_at)}

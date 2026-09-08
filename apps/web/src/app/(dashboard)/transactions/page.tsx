@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/table";
 import { apiCall, getApiErrorMessage } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
+import { getActiveProject } from "@/lib/project";
 import { canManage } from "@/lib/roles";
 import type { TxnList } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -74,12 +75,15 @@ export default async function TransactionsPage({
 
   const session = await auth();
   const manage = canManage(session?.user?.role);
+  const cookie = await cookieHeader();
+  const { project } = await getActiveProject(cookie);
+  const hideBroker = project?.slug === "dyna-day-qa-demo";
 
   let data: TxnList | null = null;
   let error: string | null = null;
   try {
     data = await apiCall("/api/transactions", "get", {
-      cookieHeader: await cookieHeader(),
+      cookieHeader: cookie,
       params: {
         query: {
           trade_date: tradeDate || undefined,
@@ -190,7 +194,7 @@ export default async function TransactionsPage({
                   <TableHead>Ext ref</TableHead>
                   <TableHead>Ordered</TableHead>
                   <TableHead>Executed</TableHead>
-                  <TableHead>Broker</TableHead>
+                  {!hideBroker && <TableHead>Broker</TableHead>}
                   <TableHead>Client</TableHead>
                   <TableHead>Stock</TableHead>
                   <TableHead>Side</TableHead>
@@ -212,7 +216,9 @@ export default async function TransactionsPage({
                     <TableCell className="whitespace-nowrap text-muted-foreground">
                       {formatDateTime(t.executed_at)}
                     </TableCell>
-                    <TableCell className="whitespace-nowrap">{t.broker_code ?? "—"}</TableCell>
+                    {!hideBroker && (
+                      <TableCell className="whitespace-nowrap">{t.broker_code ?? "—"}</TableCell>
+                    )}
                     <TableCell>
                       {t.client_name ?? "—"}
                       {t.client_account && (

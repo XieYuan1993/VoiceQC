@@ -21,6 +21,7 @@ from pathlib import Path
 
 from celery import chain
 from loguru import logger
+from opencc import OpenCC
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from voiceqa_shared import gcs
@@ -344,6 +345,17 @@ _CJK_DIGITS = {
 _DIGIT_RUN = re.compile("[" + "".join(_CJK_DIGITS) + "]{3,}")
 
 
+@lru_cache(maxsize=1)
+def _traditional_converter() -> OpenCC:
+    return OpenCC("s2t")
+
+
+def _apply_output_script(text: str, output_script: str) -> str:
+    if output_script == "traditional":
+        return _traditional_converter().convert(text)
+    return text
+
+
 def _spoken_digits_to_arabic(text: str) -> str:
     """Render runs of 3+ spoken digit characters as Arabic, digit by digit
     (二零三二九八 -> 203298) — stock codes, account and phone numbers. Qwen's ITN
@@ -559,10 +571,12 @@ def transcribe(
                 recording_id,
             )
 
+        output_script = get_setting(session, project_id, "asr.output_script", "original")
         lines = []
         for role, start_ms, text in _interleave_turns(segments):
             mm, ss = divmod(start_ms // 1000, 60)
-            lines.append(f"[{mm:02d}:{ss:02d}] {role}: {_spoken_digits_to_arabic(text)}")
+            display_text = _apply_output_script(_spoken_digits_to_arabic(text), output_script)
+            lines.append(f"[{mm:02d}:{ss:02d}] {role}: {display_text}")
         full_text = "\n".join(lines)
         repaired_turns: list[tuple[str, int, str]] = []
 
@@ -620,7 +634,7 @@ def transcribe(
                     channel_role=role,
                     start_ms=seg.start_ms,
                     end_ms=seg.end_ms,
-                    text=seg.text,
+                    text=_apply_output_script(_spoken_digits_to_arabic(seg.text), output_script),
                     language=seg.language,
                     confidence=seg.confidence,
                 )
