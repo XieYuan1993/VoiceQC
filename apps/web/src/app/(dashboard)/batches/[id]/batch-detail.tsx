@@ -42,7 +42,15 @@ import { formatBytes, formatDateTime, formatDuration } from "@/lib/format";
 import type { Batch, RecordingList, UploadFileResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const ACCEPTED_EXTS: readonly string[] = [".wav", ".mp3", ".m4a", ".flac", ".ogg", ".zip"];
+const ACCEPTED_EXTS: readonly string[] = [
+  ".wav",
+  ".mp3",
+  ".m4a",
+  ".flac",
+  ".ogg",
+  ".opus",
+  ".zip",
+];
 const UPLOAD_CONCURRENCY = 3;
 const POLL_MS = 5000;
 const REC_PAGE_SIZE = 50;
@@ -396,6 +404,9 @@ export function BatchDetail({
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-semibold">{batch.name ?? batch.trade_date}</h1>
             <StatusBadge status={batch.status} />
+            {batch.processing_mode === "transcription_only" && (
+              <Badge variant="info">transcription only</Badge>
+            )}
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
             Batch date {batch.trade_date} · {serverFileCount} file
@@ -423,7 +434,10 @@ export function BatchDetail({
               Rerun STT
             </Button>
           )}
-          {canManage && batch.status !== "open" && serverFileCount > 0 && (
+          {canManage &&
+            batch.processing_mode !== "transcription_only" &&
+            batch.status !== "open" &&
+            serverFileCount > 0 && (
             <Button
               variant="outline"
               onClick={() => onRerunEvaluation()}
@@ -436,7 +450,7 @@ export function BatchDetail({
               )}
               Re-evaluate batch
             </Button>
-          )}
+            )}
           {canManage && batch.status === "open" && (
             <Button onClick={onFinalize} disabled={!canFinalize || finalizing}>
               {finalizing && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />}
@@ -609,7 +623,7 @@ export function BatchDetail({
                 />
               )}
             </CardTitle>
-            {canManage && selectedCount > 0 && (
+            {canManage && batch.processing_mode !== "transcription_only" && selectedCount > 0 && (
               <div className="flex items-center gap-2">
                 <span className="text-sm text-muted-foreground">
                   {selectedCount} selected
@@ -659,7 +673,7 @@ export function BatchDetail({
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
-                    {canManage && (
+                    {canManage && batch.processing_mode !== "transcription_only" && (
                       <TableHead className="w-10">
                         <input
                           type="checkbox"
@@ -690,7 +704,7 @@ export function BatchDetail({
                 <TableBody>
                   {recordings.items.map((r) => (
                     <TableRow key={r.id}>
-                      {canManage && (
+                      {canManage && batch.processing_mode !== "transcription_only" && (
                         <TableCell>
                           <input
                             type="checkbox"
@@ -729,7 +743,7 @@ export function BatchDetail({
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-2">
-                          {canManage && (
+                          {canManage && batch.processing_mode !== "transcription_only" && (
                             <Button
                               variant="ghost"
                               size="sm"

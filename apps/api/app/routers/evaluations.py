@@ -182,6 +182,12 @@ async def rerun_evaluation(
 ) -> EvalRerunOut:
     """Re-evaluate under the CURRENT criteria/fields config (new run_seq)."""
     rec = await _get_scoped(session, user, recording_id, project_id)
+    batch = await session.get(UploadBatch, rec.batch_id)
+    if batch is not None and batch.processing_mode == "transcription_only":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "this batch is transcription-only and cannot be evaluated",
+        )
     if rec.status in ("uploaded", "converting", "transcribing", "evaluating"):
         raise HTTPException(status.HTTP_409_CONFLICT, f"recording is busy ({rec.status})")
     has_transcript = (
@@ -195,7 +201,6 @@ async def rerun_evaluation(
     rec.error = None
     rec.attempts = 0
     # Reactivate the batch so its rollup status recomputes (else it stays frozen).
-    batch = await session.get(UploadBatch, rec.batch_id)
     if batch is not None and batch.status in ("completed", "completed_with_errors", "failed"):
         batch.status = "processing"
     log_audit(

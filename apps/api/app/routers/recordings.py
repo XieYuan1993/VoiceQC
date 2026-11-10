@@ -67,7 +67,23 @@ _MEDIA_TYPES = {
     ".m4a": "audio/mp4",
     ".flac": "audio/flac",
     ".ogg": "audio/ogg",
+    ".opus": "audio/opus",
 }
+
+
+def _speaker_label(role: str) -> str:
+    return "Speaker 2" if role == "customer" else "Speaker 1"
+
+
+def _format_segment_time(milliseconds: int) -> str:
+    total_seconds, ms = divmod(max(0, milliseconds), 1000)
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}.{ms:03d}"
+
+
+def _safe_export_text(value: str) -> str:
+    return " ".join(value.replace("|", " ").splitlines()).strip()
 
 
 async def _scope_extensions(session: AsyncSession, user: User) -> set[str] | None:
@@ -77,12 +93,16 @@ async def _scope_extensions(session: AsyncSession, user: User) -> set[str] | Non
     if not has_perm(user.role, RECORDINGS_READ_OWN):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "no recordings access")
     rows = (
-        await session.execute(
-            select(Broker.phone_extensions)
-            .join(UserBrokerCode, UserBrokerCode.broker_code == Broker.code)
-            .where(UserBrokerCode.user_id == user.id)
+        (
+            await session.execute(
+                select(Broker.phone_extensions)
+                .join(UserBrokerCode, UserBrokerCode.broker_code == Broker.code)
+                .where(UserBrokerCode.user_id == user.id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return {ext for extensions in rows for ext in extensions}
 
 
@@ -159,9 +179,7 @@ def _latest_eval_ids() -> Select:
     )
 
 
-async def _latest_scores(
-    session: AsyncSession, rec_ids: list[uuid.UUID]
-) -> dict[uuid.UUID, float]:
+async def _latest_scores(session: AsyncSession, rec_ids: list[uuid.UUID]) -> dict[uuid.UUID, float]:
     """overall_score from each recording's latest completed eval, for a page of rows."""
     if not rec_ids:
         return {}
@@ -242,9 +260,7 @@ async def list_recordings(
     if attention:
         stmt = stmt.where(Recording.id.in_(_attention_ids()))
 
-    total = (
-        await session.execute(select(func.count()).select_from(stmt.subquery()))
-    ).scalar_one()
+    total = (await session.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     rows = (
         (
             await session.execute(
@@ -259,17 +275,21 @@ async def list_recordings(
         .scalars()
         .all()
     )
-    with_transcript = set(
-        (
-            await session.execute(
-                select(Transcript.recording_id).where(
-                    Transcript.recording_id.in_([r.id for r in rows])
+    with_transcript = (
+        set(
+            (
+                await session.execute(
+                    select(Transcript.recording_id).where(
+                        Transcript.recording_id.in_([r.id for r in rows])
+                    )
                 )
             )
+            .scalars()
+            .all()
         )
-        .scalars()
-        .all()
-    ) if rows else set()
+        if rows
+        else set()
+    )
     scores = await _latest_scores(session, [r.id for r in rows])
     return RecordingListOut(
         items=[_out(r, r.id in with_transcript, scores.get(r.id)) for r in rows],
@@ -299,9 +319,14 @@ async def reevaluate_recordings(
     """
     extensions = await _scope_extensions(session, user)
     recording_ids = payload.recording_ids if payload is not None else []
-    stmt = _apply_scope(select(Recording), extensions).where(
-        Recording.project_id == project_id,
-        Recording.status.not_in(("uploaded", "converting", "transcribing", "evaluating")),
+    stmt = (
+        _apply_scope(select(Recording), extensions)
+        .join(UploadBatch, Recording.batch_id == UploadBatch.id)
+        .where(
+            Recording.project_id == project_id,
+            UploadBatch.processing_mode != "transcription_only",
+            Recording.status.not_in(("uploaded", "converting", "transcribing", "evaluating")),
+        )
     )
     if recording_ids:
         stmt = stmt.where(Recording.id.in_(recording_ids))
@@ -334,7 +359,9 @@ async def reevaluate_recordings(
                         Transcript.recording_id.in_([r.id for r in recs])
                     )
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
         if recs
         else set()
@@ -356,8 +383,12 @@ async def reevaluate_recordings(
         if b is not None and b.status in ("completed", "completed_with_errors", "failed"):
             b.status = "processing"
     log_audit(
-        session, action="evaluation.rerun_bulk", user_id=user.id, actor_email=user.email,
-        object_type="project", object_id=str(project_id),
+        session,
+        action="evaluation.rerun_bulk",
+        user_id=user.id,
+        actor_email=user.email,
+        object_type="project",
+        object_id=str(project_id),
         details={
             "queued": len(to_enqueue),
             "batch_id": str(batch_id) if batch_id is not None else None,
@@ -366,7 +397,9 @@ async def reevaluate_recordings(
             "call_date": call_date.isoformat() if call_date is not None else None,
             "q": bool(q),
             "attention": attention,
-        }, ip=meta.ip, user_agent=meta.user_agent,
+        },
+        ip=meta.ip,
+        user_agent=meta.user_agent,
     )
     await session.commit()
     for rid in to_enqueue:
@@ -438,27 +471,41 @@ async def export_recordings(
 
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow([
-        "filename", "agent", "direction", "call_time", "duration_s", "status",
-        "overall_score", "adherence_pct", "correctness_pct", "sentiment", "intent",
-        "complaint", "review_status",
-    ])
+    w.writerow(
+        [
+            "filename",
+            "agent",
+            "direction",
+            "call_time",
+            "duration_s",
+            "status",
+            "overall_score",
+            "adherence_pct",
+            "correctness_pct",
+            "sentiment",
+            "intent",
+            "complaint",
+            "review_status",
+        ]
+    )
     for rec, score, adh, corr, sentiment, intent, is_comp, review in rows:
-        w.writerow([
-            rec.original_filename,
-            rec.broker_ext or "",
-            rec.direction,
-            rec.call_started_at.isoformat() if rec.call_started_at else "",
-            float(rec.duration_seconds) if rec.duration_seconds is not None else "",
-            rec.status,
-            float(score) if score is not None else "",
-            float(adh) if adh is not None else "",
-            float(corr) if corr is not None else "",
-            sentiment or "",
-            intent or "",
-            ("yes" if is_comp else "no") if is_comp is not None else "",
-            review or "",
-        ])
+        w.writerow(
+            [
+                rec.original_filename,
+                rec.broker_ext or "",
+                rec.direction,
+                rec.call_started_at.isoformat() if rec.call_started_at else "",
+                float(rec.duration_seconds) if rec.duration_seconds is not None else "",
+                rec.status,
+                float(score) if score is not None else "",
+                float(adh) if adh is not None else "",
+                float(corr) if corr is not None else "",
+                sentiment or "",
+                intent or "",
+                ("yes" if is_comp else "no") if is_comp is not None else "",
+                review or "",
+            ]
+        )
     return Response(
         content=buf.getvalue(),
         media_type="text/csv",
@@ -493,11 +540,10 @@ async def get_recording(
 ) -> RecordingDetail:
     rec = await _get_scoped(session, user, recording_id, project_id)
     has_transcript = (
-        await session.execute(
-            select(Transcript.id).where(Transcript.recording_id == rec.id)
-        )
+        await session.execute(select(Transcript.id).where(Transcript.recording_id == rec.id))
     ).scalar_one_or_none() is not None
     scores = await _latest_scores(session, [rec.id])
+    batch = await session.get(UploadBatch, rec.batch_id)
     base = _out(rec, has_transcript, scores.get(rec.id))
     return RecordingDetail(
         **base.model_dump(),
@@ -506,6 +552,7 @@ async def get_recording(
         sample_rate=rec.sample_rate,
         channels=rec.channels,
         format=rec.format,
+        processing_mode=batch.processing_mode if batch is not None else "full",
     )
 
 
@@ -535,8 +582,14 @@ async def get_transcript(
         .all()
     )
     log_audit(
-        session, action="transcript.view", user_id=user.id, actor_email=user.email,
-        object_type="recording", object_id=str(rec.id), ip=meta.ip, user_agent=meta.user_agent,
+        session,
+        action="transcript.view",
+        user_id=user.id,
+        actor_email=user.email,
+        object_type="recording",
+        object_id=str(rec.id),
+        ip=meta.ip,
+        user_agent=meta.user_agent,
     )
     await session.commit()
     return TranscriptOut(
@@ -558,6 +611,80 @@ async def get_transcript(
             )
             for s in segments
         ],
+    )
+
+
+@router.get("/{recording_id}/transcript/export")
+async def export_transcript(
+    recording_id: uuid.UUID,
+    format_: str = Query(alias="format", pattern="^(full|segments)$"),
+    project_id: uuid.UUID = Depends(resolve_project_id),
+    user: User = Depends(require(TRANSCRIPTS_READ)),
+    session: AsyncSession = Depends(get_session),
+    meta: ClientMeta = Depends(client_meta),
+) -> Response:
+    """Download a readable transcript or FWD's pipe-separated segment file."""
+    rec = await _get_scoped(session, user, recording_id, project_id)
+    transcript = (
+        await session.execute(select(Transcript).where(Transcript.recording_id == rec.id))
+    ).scalar_one_or_none()
+    if transcript is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no transcript yet")
+    segments = (
+        (
+            await session.execute(
+                select(TranscriptSegment)
+                .where(TranscriptSegment.transcript_id == transcript.id)
+                .order_by(TranscriptSegment.start_ms, TranscriptSegment.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    if format_ == "segments":
+        lines = ["speaker|start_time|end_time|content"]
+        lines.extend(
+            "|".join(
+                (
+                    _speaker_label(segment.channel_role),
+                    _format_segment_time(segment.start_ms),
+                    _format_segment_time(segment.end_ms),
+                    _safe_export_text(segment.text),
+                )
+            )
+            for segment in segments
+        )
+        suffix = "segments"
+    else:
+        lines = [
+            f"[{_format_segment_time(segment.start_ms)} - "
+            f"{_format_segment_time(segment.end_ms)}] "
+            f"{_speaker_label(segment.channel_role)}: {_safe_export_text(segment.text)}"
+            for segment in segments
+        ]
+        if not lines:
+            lines = [_safe_export_text(transcript.full_text)]
+        suffix = "full_transcript"
+
+    log_audit(
+        session,
+        action="transcript.export",
+        user_id=user.id,
+        actor_email=user.email,
+        object_type="recording",
+        object_id=str(rec.id),
+        details={"format": format_},
+        ip=meta.ip,
+        user_agent=meta.user_agent,
+    )
+    await session.commit()
+    safe_stem = re.sub(r"[^A-Za-z0-9._-]+", "_", Path(rec.original_filename).stem).strip("._")
+    filename = f"{safe_stem or 'recording'}_{suffix}.txt"
+    return Response(
+        content="\ufeff" + "\n".join(lines) + "\n",
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -584,12 +711,20 @@ async def get_audio(
     if not rec.gcs_uri_raw:
         raise HTTPException(status.HTTP_410_GONE, "audio purged by retention policy")
     log_audit(
-        session, action="recording.play_audio", user_id=user.id, actor_email=user.email,
-        object_type="recording", object_id=str(rec.id), ip=meta.ip, user_agent=meta.user_agent,
+        session,
+        action="recording.play_audio",
+        user_id=user.id,
+        actor_email=user.email,
+        object_type="recording",
+        object_id=str(rec.id),
+        ip=meta.ip,
+        user_agent=meta.user_agent,
     )
     await session.commit()
 
-    media_type = _MEDIA_TYPES.get(Path(rec.original_filename).suffix.lower(), "application/octet-stream")
+    media_type = _MEDIA_TYPES.get(
+        Path(rec.original_filename).suffix.lower(), "application/octet-stream"
+    )
     total = await run_in_threadpool(gcs.object_size, rec.gcs_uri_raw)
 
     m = _RANGE_RE.match(range_header or "")
@@ -599,7 +734,8 @@ async def get_audio(
         end = min(end, total - 1)
         if start > end:
             raise HTTPException(
-                status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE, "invalid range",
+                status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
+                "invalid range",
                 headers={"Content-Range": f"bytes */{total}"},
             )
         chunk = await run_in_threadpool(gcs.read_uri_range, rec.gcs_uri_raw, start, end)
@@ -637,6 +773,12 @@ async def reprocess(
     if from_stage == "stt" and not (rec.gcs_uri_broker or rec.gcs_uri_mono):
         raise HTTPException(status.HTTP_409_CONFLICT, "no normalized audio; reprocess from convert")
     if from_stage == "eval":
+        batch = await session.get(UploadBatch, rec.batch_id)
+        if batch is not None and batch.processing_mode == "transcription_only":
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "this batch is transcription-only and cannot be evaluated",
+            )
         has_transcript = (
             await session.execute(select(Transcript.id).where(Transcript.recording_id == rec.id))
         ).scalar_one_or_none() is not None
@@ -656,9 +798,15 @@ async def reprocess(
     if batch is not None and batch.status in ("completed", "completed_with_errors", "failed"):
         batch.status = "processing"
     log_audit(
-        session, action="recording.reprocess", user_id=user.id, actor_email=user.email,
-        object_type="recording", object_id=str(rec.id), details={"from_stage": from_stage},
-        ip=meta.ip, user_agent=meta.user_agent,
+        session,
+        action="recording.reprocess",
+        user_id=user.id,
+        actor_email=user.email,
+        object_type="recording",
+        object_id=str(rec.id),
+        details={"from_stage": from_stage},
+        ip=meta.ip,
+        user_agent=meta.user_agent,
     )
     await session.commit()
     queue.send_pipeline_chain(str(rec.id), from_stage=from_stage)

@@ -6,6 +6,7 @@ import { NavLinks } from "@/components/nav-links";
 import { SignOutButton } from "@/components/nav";
 import { ProjectSwitcher } from "@/components/project-switcher";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { Badge } from "@/components/ui/badge";
 import { getActiveProject } from "@/lib/project";
 
 import { cookieHeader } from "./_data";
@@ -19,6 +20,11 @@ export default async function DashboardLayout({
   if (!session?.user) redirect("/login");
 
   const { project, projects, id, modules } = await getActiveProject(await cookieHeader());
+  const branding = project?.branding ?? {};
+  const appName =
+    typeof branding["app_name"] === "string" ? branding["app_name"] : "VoiceQA";
+  const isDemo = branding["demo_mode"] === true;
+  const industry = typeof branding["industry"] === "string" ? branding["industry"] : undefined;
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -30,11 +36,10 @@ export default async function DashboardLayout({
           >
             <AudioWaveform className="h-4 w-4" />
           </span>
-          <span>
-            <span className="text-primary">Voice</span>
-            <span>QA</span>
-          </span>
+          <span>{appName}</span>
         </span>
+
+        {isDemo && <Badge variant="info">Demo data</Badge>}
 
         <ProjectSwitcher projects={projects} activeId={id} />
 
@@ -48,7 +53,7 @@ export default async function DashboardLayout({
       </header>
       <div className="flex flex-1">
         <aside className="w-56 shrink-0 border-r px-3 py-4">
-          <NavLinks modules={modules} key={project?.id ?? "none"} />
+          <NavLinks modules={modules} industry={industry} key={project?.id ?? "none"} />
         </aside>
         <main className="flex-1 p-6">{children}</main>
       </div>

@@ -56,7 +56,8 @@ export default async function BatchesPage({
   const manage = canManage(session?.user?.role);
 
   const cookie = await cookieHeader();
-  const { id: projectId } = await getActiveProject(cookie);
+  const { id: projectId, modules } = await getActiveProject(cookie);
+  const forceTranscriptionOnly = modules["transcription_only"] === true;
 
   let data: BatchList | null = null;
   let error: string | null = null;
@@ -104,7 +105,10 @@ export default async function BatchesPage({
         {manage && (
           <div className="flex items-start gap-2">
             <BulkBatchActions projectId={projectId} />
-            <NewBatchButton projectId={projectId} />
+            <NewBatchButton
+              projectId={projectId}
+              forceTranscriptionOnly={forceTranscriptionOnly}
+            />
           </div>
         )}
       </div>

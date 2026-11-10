@@ -15,7 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from voiceqa_shared import gcs
 from voiceqa_shared.audit import log_audit
-from voiceqa_shared.db_models import Recording, UploadBatch, User
+from voiceqa_shared.db_models import Project, Recording, UploadBatch, User
 
 from app import queue
 from app.db import get_session
@@ -39,7 +39,7 @@ from app.schemas import (
 
 router = APIRouter(prefix="/api/batches", tags=["batches"])
 
-AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".flac", ".ogg"}
+AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".opus"}
 MAX_AUDIO_BYTES = 200 * 1024 * 1024
 MAX_ZIP_BYTES = 2 * 1024 * 1024 * 1024
 DIRECT_UPLOAD_EXPIRES_SECONDS = 15 * 60
@@ -75,6 +75,7 @@ def _out(
         id=batch.id,
         name=batch.name,
         trade_date=batch.trade_date,
+        processing_mode=batch.processing_mode,
         status=batch.status,
         total_files=batch.total_files,
         created_at=batch.created_at,
@@ -92,15 +93,33 @@ async def create_batch(
     session: AsyncSession = Depends(get_session),
     meta: ClientMeta = Depends(client_meta),
 ) -> BatchOut:
+    project = await session.get(Project, project_id)
+    force_transcription_only = bool(
+        project is not None and (project.modules or {}).get("transcription_only")
+    )
+    processing_mode = "transcription_only" if force_transcription_only else payload.processing_mode
     batch = UploadBatch(
-        project_id=project_id, name=payload.name, trade_date=payload.trade_date, created_by=user.id
+        project_id=project_id,
+        name=payload.name,
+        trade_date=payload.trade_date,
+        processing_mode=processing_mode,
+        created_by=user.id,
     )
     session.add(batch)
     await session.flush()
     log_audit(
-        session, action="batch.create", user_id=user.id, actor_email=user.email,
-        object_type="batch", object_id=str(batch.id),
-        details={"trade_date": str(payload.trade_date)}, ip=meta.ip, user_agent=meta.user_agent,
+        session,
+        action="batch.create",
+        user_id=user.id,
+        actor_email=user.email,
+        object_type="batch",
+        object_id=str(batch.id),
+        details={
+            "trade_date": str(payload.trade_date),
+            "processing_mode": processing_mode,
+        },
+        ip=meta.ip,
+        user_agent=meta.user_agent,
     )
     await session.commit()
     return _out(batch)
@@ -129,9 +148,7 @@ async def list_batches(
         stmt = stmt.where(UploadBatch.trade_date >= call_date_from)
     if call_date_to is not None:
         stmt = stmt.where(UploadBatch.trade_date <= call_date_to)
-    total = (
-        await session.execute(select(func.count()).select_from(stmt.subquery()))
-    ).scalar_one()
+    total = (await session.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
     batches = (
         (
             await session.execute(
@@ -334,9 +351,7 @@ async def init_direct_upload(
     filename = Path(payload.filename).name
     kind, limit = _upload_kind_and_limit(filename)
     if payload.size_bytes > limit:
-        raise HTTPException(
-            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"file exceeds {limit} bytes"
-        )
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"file exceeds {limit} bytes")
 
     content_type = payload.content_type or "application/octet-stream"
     upload_id = str(uuid.uuid4())
@@ -378,9 +393,7 @@ async def complete_direct_upload(
     filename = Path(payload.filename).name
     kind, limit = _upload_kind_and_limit(filename)
     if payload.size_bytes > limit:
-        raise HTTPException(
-            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"file exceeds {limit} bytes"
-        )
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"file exceeds {limit} bytes")
 
     try:
         upload_uuid = uuid.UUID(payload.upload_id)
@@ -444,7 +457,9 @@ async def complete_direct_upload(
     )
     session.add(recording)
     await session.commit()
-    return UploadFileResult(filename=filename, kind="audio", recording_id=upload_uuid, size_bytes=stored_size)
+    return UploadFileResult(
+        filename=filename, kind="audio", recording_id=upload_uuid, size_bytes=stored_size
+    )
 
 
 def _purge_recording_audio(uris: list[str]) -> int:
@@ -464,8 +479,10 @@ async def delete_batch(
     trade instructions, then purge their audio from object storage."""
     batch = await _get_batch(session, batch_id, project_id)
     recs = (
-        await session.execute(select(Recording).where(Recording.batch_id == batch_id))
-    ).scalars().all()
+        (await session.execute(select(Recording).where(Recording.batch_id == batch_id)))
+        .scalars()
+        .all()
+    )
     uris = [
         u
         for r in recs
@@ -473,10 +490,15 @@ async def delete_batch(
         if u
     ]
     log_audit(
-        session, action="batch.delete", user_id=user.id, actor_email=user.email,
-        object_type="batch", object_id=str(batch_id),
+        session,
+        action="batch.delete",
+        user_id=user.id,
+        actor_email=user.email,
+        object_type="batch",
+        object_id=str(batch_id),
         details={"name": batch.name, "trade_date": str(batch.trade_date), "recordings": len(recs)},
-        ip=meta.ip, user_agent=meta.user_agent,
+        ip=meta.ip,
+        user_agent=meta.user_agent,
     )
     await session.delete(batch)  # cascades to recordings + transcripts/evals/instructions
     await session.commit()
@@ -526,9 +548,7 @@ async def upload_file(
 
     try:
         if is_zip:
-            await run_in_threadpool(
-                gcs.upload_file, f"raw/{batch_id}/_zips/{filename}", tmp_path
-            )
+            await run_in_threadpool(gcs.upload_file, f"raw/{batch_id}/_zips/{filename}", tmp_path)
             return UploadFileResult(filename=filename, kind="zip", size_bytes=size)
 
         dup = (
@@ -577,8 +597,14 @@ async def finalize_batch(
     batch.status = "processing"
     batch.finalized_at = datetime.now(UTC)
     log_audit(
-        session, action="batch.finalize", user_id=user.id, actor_email=user.email,
-        object_type="batch", object_id=str(batch.id), ip=meta.ip, user_agent=meta.user_agent,
+        session,
+        action="batch.finalize",
+        user_id=user.id,
+        actor_email=user.email,
+        object_type="batch",
+        object_id=str(batch.id),
+        ip=meta.ip,
+        user_agent=meta.user_agent,
     )
     await session.commit()
     queue.send("voiceqa.ingest.expand_batch", str(batch_id))
@@ -624,15 +650,19 @@ async def retry_failed(
         rec.status = status_
         rec.attempts = 0
         rec.auto_retry_remaining = max(rec.auto_retry_remaining, 2)
-        plans.append(
-            (str(rec.id), stage, rec.rerun_asr_provider, rec.rerun_asr_model)
-        )
+        plans.append((str(rec.id), stage, rec.rerun_asr_provider, rec.rerun_asr_model))
     if plans and batch.status in TERMINAL_BATCH_STATUSES:
         batch.status = "processing"
     log_audit(
-        session, action="batch.retry_failed", user_id=user.id, actor_email=user.email,
-        object_type="batch", object_id=str(batch.id), details={"count": len(plans)},
-        ip=meta.ip, user_agent=meta.user_agent,
+        session,
+        action="batch.retry_failed",
+        user_id=user.id,
+        actor_email=user.email,
+        object_type="batch",
+        object_id=str(batch.id),
+        details={"count": len(plans)},
+        ip=meta.ip,
+        user_agent=meta.user_agent,
     )
     await session.commit()
     has_waiting_stt = False
@@ -662,31 +692,40 @@ async def rerun_batch_stt(
 ) -> BulkRerunOut:
     batch = await _get_batch(session, batch_id, project_id)
     rows = (
-        await session.execute(
-            select(Recording).where(
-                Recording.batch_id == batch_id,
-                (
-                    Recording.gcs_uri_broker.is_not(None)
-                    | Recording.gcs_uri_customer.is_not(None)
-                    | Recording.gcs_uri_mono.is_not(None)
-                ),
+        (
+            await session.execute(
+                select(Recording).where(
+                    Recording.batch_id == batch_id,
+                    (
+                        Recording.gcs_uri_broker.is_not(None)
+                        | Recording.gcs_uri_customer.is_not(None)
+                        | Recording.gcs_uri_mono.is_not(None)
+                    ),
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for rec in rows:
         _prepare_stt_rerun(rec, payload)
     if rows:
         batch.status = "processing"
     log_audit(
-        session, action="batch.rerun_stt", user_id=user.id, actor_email=user.email,
-        object_type="batch", object_id=str(batch.id),
+        session,
+        action="batch.rerun_stt",
+        user_id=user.id,
+        actor_email=user.email,
+        object_type="batch",
+        object_id=str(batch.id),
         details={
             "count": len(rows),
             "asr_provider": payload.asr_provider,
             "asr_model": payload.asr_model,
             "auto_retry_limit": payload.auto_retry_limit,
         },
-        ip=meta.ip, user_agent=meta.user_agent,
+        ip=meta.ip,
+        user_agent=meta.user_agent,
     )
     await session.commit()
     if rows:

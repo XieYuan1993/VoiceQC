@@ -1,6 +1,15 @@
 "use client";
 
-import { ArrowLeft, AudioLines, ChevronDown, Clock, FileText, Loader2, Sparkles } from "lucide-react";
+import {
+  ArrowLeft,
+  AudioLines,
+  ChevronDown,
+  Clock,
+  Download,
+  FileText,
+  Loader2,
+  Sparkles,
+} from "lucide-react";
 import Link from "next/link";
 import * as React from "react";
 
@@ -371,6 +380,29 @@ export function RecordingDetailView({
     }
   }
 
+  async function downloadTranscript(format: "full" | "segments") {
+    setActionError(null);
+    try {
+      const query = new URLSearchParams({ project_id: projectId, format });
+      const response = await fetch(
+        `${API_URL}/api/recordings/${recordingId}/transcript/export?${query.toString()}`,
+        { credentials: "include" },
+      );
+      if (!response.ok) throw new Error(`Transcript export failed (HTTP ${response.status})`);
+      const blob = await response.blob();
+      const disposition = response.headers.get("content-disposition") ?? "";
+      const filename = disposition.match(/filename="([^"]+)"/)?.[1] ?? `transcript-${format}.txt`;
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Transcript export failed.");
+    }
+  }
+
   if (loadError !== null && rec === null) {
     return (
       <div className="space-y-4">
@@ -530,14 +562,16 @@ export function RecordingDetailView({
         </Card>
       </div>
 
-      <EvaluationPanel
-        recordingId={recordingId}
-        projectId={projectId}
-        recordingStatus={rec.status}
-        canReview={canReview}
-        onJump={jumpToEvidence}
-        onRecordingChanged={() => void loadRecording()}
-      />
+      {rec.processing_mode !== "transcription_only" && (
+        <EvaluationPanel
+          recordingId={recordingId}
+          projectId={projectId}
+          recordingStatus={rec.status}
+          canReview={canReview}
+          onJump={jumpToEvidence}
+          onRecordingChanged={() => void loadRecording()}
+        />
+      )}
 
       <Card>
         <CardHeader className="p-0">
@@ -574,7 +608,19 @@ export function RecordingDetailView({
         {transcriptOpen && (
           <CardContent id="recording-transcript" className="border-t pt-6">
             {transcript && transcript.full_text && (
-              <div className="mb-4 flex justify-end">
+              <div className="mb-4 flex flex-wrap justify-end gap-2">
+                <Button variant="outline" size="sm" onClick={() => void downloadTranscript("full")}>
+                  <Download className="mr-2 h-4 w-4" aria-hidden />
+                  Full transcript
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void downloadTranscript("segments")}
+                >
+                  <Download className="mr-2 h-4 w-4" aria-hidden />
+                  Segmented file
+                </Button>
                 <Button variant="ghost" size="sm" onClick={() => setShowRaw((v) => !v)}>
                   {showRaw ? "Hide raw text" : "Show raw text"}
                 </Button>

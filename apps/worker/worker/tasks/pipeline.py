@@ -32,6 +32,7 @@ from voiceqa_shared.db_models import (
     SttUsage,
     Transcript,
     TranscriptSegment,
+    UploadBatch,
 )
 
 from worker import audio
@@ -93,10 +94,7 @@ def _claim_stt_slot(session, rec: Recording) -> bool:
         return True
 
     session.execute(
-        text(
-            "SELECT pg_advisory_xact_lock("
-            "hashtextextended(CAST(:scope AS text), 0))"
-        ),
+        text("SELECT pg_advisory_xact_lock(hashtextextended(CAST(:scope AS text), 0))"),
         {"scope": "voiceqa-stt-global"},
     )
     active = session.execute(
@@ -122,10 +120,7 @@ def _try_stt_recording_lock(session, recording_id: str) -> bool:
     """Serialize provider submission and result persistence per recording."""
     return bool(
         session.execute(
-            text(
-                "SELECT pg_try_advisory_xact_lock("
-                "hashtextextended(CAST(:scope AS text), 0))"
-            ),
+            text("SELECT pg_try_advisory_xact_lock(hashtextextended(CAST(:scope AS text), 0))"),
             {"scope": f"voiceqa-stt-recording:{recording_id}"},
         ).scalar_one()
     )
@@ -265,16 +260,27 @@ def normalize_audio(self, recording_id: str) -> None:
             rec.stt_started_at = None
             session.commit()
         logger.info(
-            "normalized {}: {}ch {}Hz {:.1f}s", recording_id, info.channels,
-            info.sample_rate, info.duration_seconds,
+            "normalized {}: {}ch {}Hz {:.1f}s",
+            recording_id,
+            info.channels,
+            info.sample_rate,
+            info.duration_seconds,
         )
     except Exception as e:
         err_str = str(e)
         # GCS / network transients: retry with backoff before permanently failing.
         transient = any(
             m in err_str
-            for m in ("timed out", "ReadTimeout", "ConnectTimeout", "TimeoutError",
-                      "503", "429", "connection aborted", "Connection reset")
+            for m in (
+                "timed out",
+                "ReadTimeout",
+                "ConnectTimeout",
+                "TimeoutError",
+                "503",
+                "429",
+                "connection aborted",
+                "Connection reset",
+            )
         )
         if transient and self.request.retries < 8:
             _touch_updated_at(recording_id)
@@ -340,8 +346,17 @@ def _slice_text_by_words(text: str, words: list, lo: int, hi: int) -> str:
 
 
 _CJK_DIGITS = {
-    "零": "0", "〇": "0", "一": "1", "二": "2", "三": "3", "四": "4",  # noqa: RUF001
-    "五": "5", "六": "6", "七": "7", "八": "8", "九": "9",
+    "零": "0",
+    "〇": "0",  # noqa: RUF001
+    "一": "1",
+    "二": "2",
+    "三": "3",
+    "四": "4",
+    "五": "5",
+    "六": "6",
+    "七": "7",
+    "八": "8",
+    "九": "9",
 }
 _DIGIT_RUN = re.compile("[" + "".join(_CJK_DIGITS) + "]{3,}")
 
@@ -364,10 +379,7 @@ def _apply_output_script_tree(value: Any, output_script: str) -> Any:
     if isinstance(value, list):
         return [_apply_output_script_tree(item, output_script) for item in value]
     if isinstance(value, dict):
-        return {
-            key: _apply_output_script_tree(item, output_script)
-            for key, item in value.items()
-        }
+        return {key: _apply_output_script_tree(item, output_script) for key, item in value.items()}
     return value
 
 
@@ -460,7 +472,8 @@ def transcribe(
     asr_provider_override: str | None = None,
     asr_model_override: str | None = None,
 ) -> None:
-
+    transcription_only = False
+    batch_id = ""
     with SessionLocal() as session:
         rec = session.get(Recording, uuid.UUID(recording_id))
         if rec is None or rec.status != "transcribing":
@@ -494,16 +507,17 @@ def transcribe(
         if rec.status != "transcribing":
             return
 
-        provider = asr_provider_override or get_setting(session, project_id, "asr.provider", "google")
+        provider = asr_provider_override or get_setting(
+            session, project_id, "asr.provider", "google"
+        )
         adapter = _adapter(provider)
         try:
             if not rec.stt_operation_name:
                 language_mode = rec.language_mode or get_setting(
                     session, project_id, "asr.language_mode", "auto"
                 )
-                model = (
-                    asr_model_override
-                    or get_setting(session, project_id, "asr.model", settings.GOOGLE_STT_MODEL)
+                model = asr_model_override or get_setting(
+                    session, project_id, "asr.model", settings.GOOGLE_STT_MODEL
                 )
                 # Results come back in the operation response (chirp inline /
                 # Gemini synchronous) and are persisted straight to Postgres —
@@ -533,9 +547,17 @@ def transcribe(
             ) or any(
                 marker in str(e)
                 for marker in (
-                    "429", "RESOURCE_EXHAUSTED", "503", "UNAVAILABLE", "500",
-                    "timed out", "ReadTimeout", "ConnectTimeout", "TimeoutError",
-                    "connection aborted", "Connection reset",
+                    "429",
+                    "RESOURCE_EXHAUSTED",
+                    "503",
+                    "UNAVAILABLE",
+                    "500",
+                    "timed out",
+                    "ReadTimeout",
+                    "ConnectTimeout",
+                    "TimeoutError",
+                    "connection aborted",
+                    "Connection reset",
                 )
             )
             if transient:
@@ -563,9 +585,8 @@ def transcribe(
         segments: list[tuple[str, object]] = []  # (role, SegmentResult)
         languages: dict[str, int] = {}
         billed = 0.0
-        model = (
-            asr_model_override
-            or get_setting(session, project_id, "asr.model", settings.GOOGLE_STT_MODEL)
+        model = asr_model_override or get_setting(
+            session, project_id, "asr.model", settings.GOOGLE_STT_MODEL
         )
         for r in results:
             role = role_by_uri.get(r.uri, "mixed")
@@ -676,7 +697,12 @@ def transcribe(
             )
         )
 
-        rec.status = "evaluating"
+        batch = session.get(UploadBatch, rec.batch_id)
+        batch_id = str(rec.batch_id)
+        transcription_only = bool(
+            batch is not None and batch.processing_mode == "transcription_only"
+        )
+        rec.status = "completed" if transcription_only else "evaluating"
         rec.stt_started_at = None
         rec.error = None
         rec.failed_stage = None
@@ -685,10 +711,13 @@ def transcribe(
         session.commit()
 
     logger.info("transcribed {}: {} segments, {:.0f}s billed", recording_id, len(segments), billed)
-    # Stage 3 (Phase 2): evaluation. Local import — evaluate.py imports
-    # _fail from this module.
-    from worker.tasks.batch import dispatch_stt_waiting
-    from worker.tasks.evaluate import evaluate as evaluate_task
+    from worker.tasks.batch import dispatch_stt_waiting, update_progress
 
-    evaluate_task.delay(recording_id)
+    if transcription_only:
+        update_progress.delay(batch_id)
+    else:
+        # Local import because evaluate.py imports _fail from this module.
+        from worker.tasks.evaluate import evaluate as evaluate_task
+
+        evaluate_task.delay(recording_id)
     dispatch_stt_waiting.delay()

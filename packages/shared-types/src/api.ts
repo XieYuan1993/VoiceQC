@@ -442,6 +442,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/recordings/{recording_id}/transcript/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Transcript
+         * @description Download a readable transcript or FWD's pipe-separated segment file.
+         */
+        get: operations["export_transcript_api_recordings__recording_id__transcript_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/recordings/{recording_id}/audio": {
         parameters: {
             query?: never;
@@ -1616,6 +1636,11 @@ export interface components {
              * Format: date
              */
             trade_date: string;
+            /**
+             * Processing Mode
+             * @default full
+             */
+            processing_mode: string;
         };
         /** BatchListOut */
         BatchListOut: {
@@ -1642,6 +1667,8 @@ export interface components {
              * Format: date
              */
             trade_date: string;
+            /** Processing Mode */
+            processing_mode: string;
             /** Status */
             status: string;
             /** Total Files */
@@ -2644,6 +2671,11 @@ export interface components {
             channels: number | null;
             /** Format */
             format: string | null;
+            /**
+             * Processing Mode
+             * @default full
+             */
+            processing_mode: string;
         };
         /** RecordingListOut */
         RecordingListOut: {
@@ -3682,7 +3714,9 @@ export interface operations {
     };
     get_batch_api_batches__batch_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                project_id?: string | null;
+            };
             header?: never;
             path: {
                 batch_id: string;
@@ -3744,7 +3778,9 @@ export interface operations {
     };
     init_direct_upload_api_batches__batch_id__direct_upload_post: {
         parameters: {
-            query?: never;
+            query?: {
+                project_id?: string | null;
+            };
             header?: never;
             path: {
                 batch_id: string;
@@ -3779,7 +3815,9 @@ export interface operations {
     };
     complete_direct_upload_api_batches__batch_id__direct_upload_complete_post: {
         parameters: {
-            query?: never;
+            query?: {
+                project_id?: string | null;
+            };
             header?: never;
             path: {
                 batch_id: string;
@@ -3814,7 +3852,9 @@ export interface operations {
     };
     upload_file_api_batches__batch_id__files_post: {
         parameters: {
-            query?: never;
+            query?: {
+                project_id?: string | null;
+            };
             header?: never;
             path: {
                 batch_id: string;
@@ -3849,7 +3889,9 @@ export interface operations {
     };
     finalize_batch_api_batches__batch_id__finalize_post: {
         parameters: {
-            query?: never;
+            query?: {
+                project_id?: string | null;
+            };
             header?: never;
             path: {
                 batch_id: string;
@@ -3880,7 +3922,9 @@ export interface operations {
     };
     retry_failed_api_batches__batch_id__retry_failed_post: {
         parameters: {
-            query?: never;
+            query?: {
+                project_id?: string | null;
+            };
             header?: never;
             path: {
                 batch_id: string;
@@ -3911,7 +3955,9 @@ export interface operations {
     };
     rerun_batch_stt_api_batches__batch_id__rerun_stt_post: {
         parameters: {
-            query?: never;
+            query?: {
+                project_id?: string | null;
+            };
             header?: never;
             path: {
                 batch_id: string;
@@ -4063,7 +4109,9 @@ export interface operations {
     };
     get_recording_api_recordings__recording_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                project_id?: string | null;
+            };
             header?: never;
             path: {
                 recording_id: string;
@@ -4094,7 +4142,9 @@ export interface operations {
     };
     get_transcript_api_recordings__recording_id__transcript_get: {
         parameters: {
-            query?: never;
+            query?: {
+                project_id?: string | null;
+            };
             header?: never;
             path: {
                 recording_id: string;
@@ -4123,9 +4173,45 @@ export interface operations {
             };
         };
     };
+    export_transcript_api_recordings__recording_id__transcript_export_get: {
+        parameters: {
+            query: {
+                format: string;
+                project_id?: string | null;
+            };
+            header?: never;
+            path: {
+                recording_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_audio_api_recordings__recording_id__audio_get: {
         parameters: {
-            query?: never;
+            query?: {
+                project_id?: string | null;
+            };
             header?: {
                 Range?: string | null;
             };
@@ -4160,6 +4246,7 @@ export interface operations {
         parameters: {
             query?: {
                 from_stage?: string;
+                project_id?: string | null;
             };
             header?: never;
             path: {
@@ -4818,7 +4905,9 @@ export interface operations {
     };
     list_evaluations_api_recordings__recording_id__evaluations_get: {
         parameters: {
-            query?: never;
+            query?: {
+                project_id?: string | null;
+            };
             header?: never;
             path: {
                 recording_id: string;
@@ -4849,7 +4938,9 @@ export interface operations {
     };
     rerun_evaluation_api_recordings__recording_id__evaluations_post: {
         parameters: {
-            query?: never;
+            query?: {
+                project_id?: string | null;
+            };
             header?: never;
             path: {
                 recording_id: string;
@@ -4880,7 +4971,9 @@ export interface operations {
     };
     review_evaluation_api_evaluations__evaluation_id__review_post: {
         parameters: {
-            query?: never;
+            query?: {
+                project_id?: string | null;
+            };
             header?: never;
             path: {
                 evaluation_id: string;
@@ -4915,7 +5008,9 @@ export interface operations {
     };
     override_result_api_evaluations__evaluation_id__results__criterion_key__override_post: {
         parameters: {
-            query?: never;
+            query?: {
+                project_id?: string | null;
+            };
             header?: never;
             path: {
                 evaluation_id: string;

@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { apiCall, getApiErrorMessage } from "@/lib/api";
 
 function today(): string {
@@ -24,17 +25,25 @@ function today(): string {
   ).padStart(2, "0")}`;
 }
 
-export function NewBatchButton({ projectId }: { projectId: string }) {
+export function NewBatchButton({
+  projectId,
+  forceTranscriptionOnly = false,
+}: {
+  projectId: string;
+  forceTranscriptionOnly?: boolean;
+}) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [name, setName] = React.useState("");
   const [tradeDate, setTradeDate] = React.useState("");
+  const [transcriptionOnly, setTranscriptionOnly] = React.useState(false);
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   function show() {
     setName("");
     setTradeDate(today());
+    setTranscriptionOnly(forceTranscriptionOnly);
     setError(null);
     setOpen(true);
   }
@@ -53,7 +62,11 @@ export function NewBatchButton({ projectId }: { projectId: string }) {
     setError(null);
     try {
       const batch = await apiCall("/api/batches", "post", {
-        body: { name: name.trim(), trade_date: tradeDate },
+        body: {
+          name: name.trim(),
+          trade_date: tradeDate,
+          processing_mode: transcriptionOnly ? "transcription_only" : "full",
+        },
         params: { query: { project_id: projectId } },
       });
       setOpen(false);
@@ -89,6 +102,22 @@ export function NewBatchButton({ projectId }: { projectId: string }) {
                 placeholder="e.g. Friday support calls"
                 maxLength={200}
                 required
+              />
+            </div>
+            <div className="flex items-center justify-between gap-4 border-t pt-4">
+              <div>
+                <Label htmlFor="transcription-only">Transcription only</Label>
+                <p className="text-sm text-muted-foreground">
+                  {forceTranscriptionOnly
+                    ? "Required for this project. Audio is transcribed without AI evaluation."
+                    : "Generate speaker-labelled transcripts without sending content for AI evaluation."}
+                </p>
+              </div>
+              <Switch
+                id="transcription-only"
+                checked={transcriptionOnly}
+                onCheckedChange={setTranscriptionOnly}
+                disabled={forceTranscriptionOnly}
               />
             </div>
             <div className="space-y-2">

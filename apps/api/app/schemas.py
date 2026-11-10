@@ -54,6 +54,7 @@ class SsoStatusResponse(BaseModel):
 class BatchCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     trade_date: date
+    processing_mode: str = Field(default="full", pattern="^(full|transcription_only)$")
 
 
 class BatchCounts(BaseModel):
@@ -69,6 +70,7 @@ class BatchOut(BaseModel):
     id: uuid.UUID
     name: str | None
     trade_date: date
+    processing_mode: str
     status: str
     total_files: int
     created_at: datetime
@@ -160,6 +162,7 @@ class RecordingDetail(RecordingOut):
     sample_rate: int | None
     channels: int | None
     format: str | None
+    processing_mode: str = "full"
 
 
 class RecordingListOut(BaseModel):

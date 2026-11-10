@@ -97,13 +97,34 @@ function NavGroup({
   );
 }
 
-export function NavLinks({ modules }: { modules?: Record<string, unknown> }) {
+export function NavLinks({
+  modules,
+  industry,
+}: {
+  modules?: Record<string, unknown>;
+  industry?: string;
+}) {
   const pathname = usePathname() ?? "";
   const showModules = hasTradeReconciliation(modules);
+  const workspaceItems =
+    industry === "insurance"
+      ? WORKSPACE.map((item) => ({
+          ...item,
+          label:
+            {
+              "/dashboard": "Overview",
+              "/recordings": "Customer calls",
+              "/review": "QA review",
+              "/agents": "Agent performance",
+              "/batches": "Upload batches",
+              "/evaluator": "QA criteria",
+            }[item.href] ?? item.label,
+        }))
+      : WORKSPACE;
 
   return (
     <nav className="flex flex-col gap-5" aria-label="Primary">
-      <NavGroup label="Workspace" items={WORKSPACE} pathname={pathname} />
+      <NavGroup label="Workspace" items={workspaceItems} pathname={pathname} />
       {showModules && <NavGroup label="Modules" items={MODULES} pathname={pathname} />}
       <NavGroup items={SYSTEM} pathname={pathname} />
     </nav>

@@ -529,22 +529,32 @@ class Evaluation(Base):
     )
     # Conversation analytics — customer-side sentiment, intent, topics, complaints
     # and follow-ups, produced by the same evaluation LLM call (no extra request).
-    sentiment_label: Mapped[str | None] = mapped_column(Text)  # positive|neutral|negative|frustrated|mixed
+    sentiment_label: Mapped[str | None] = mapped_column(
+        Text
+    )  # positive|neutral|negative|frustrated|mixed
     sentiment_score: Mapped[float | None] = mapped_column(Numeric(3, 2))  # -1.00..1.00, customer
     customer_intent: Mapped[str | None] = mapped_column(Text)
     topics: Mapped[Any] = mapped_column(JSONB, nullable=False, server_default=text("'[]'"))
     is_complaint: Mapped[bool | None] = mapped_column(Boolean)
     complaint_category: Mapped[str | None] = mapped_column(Text)
-    follow_up_actions: Mapped[Any] = mapped_column(JSONB, nullable=False, server_default=text("'[]'"))
+    follow_up_actions: Mapped[Any] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'")
+    )
     # Checklist / script-adherence — frozen items + per-item coverage + % covered.
-    checklist_snapshot: Mapped[Any] = mapped_column(JSONB, nullable=False, server_default=text("'[]'"))
-    checklist_results: Mapped[Any] = mapped_column(JSONB, nullable=False, server_default=text("'[]'"))
+    checklist_snapshot: Mapped[Any] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'")
+    )
+    checklist_results: Mapped[Any] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'")
+    )
     checklist_score: Mapped[float | None] = mapped_column(Numeric(5, 2))  # % required items covered
     # Answer correctness (RAG) — agent claims judged against the project knowledge base.
     correctness_findings: Mapped[Any] = mapped_column(
         JSONB, nullable=False, server_default=text("'[]'")
     )
-    correctness_score: Mapped[float | None] = mapped_column(Numeric(5, 2))  # % checkable claims correct
+    correctness_score: Mapped[float | None] = mapped_column(
+        Numeric(5, 2)
+    )  # % checkable claims correct
     review_status: Mapped[str] = mapped_column(
         Text, nullable=False, server_default=text("'unreviewed'")
     )  # unreviewed | approved | overridden
@@ -661,9 +671,7 @@ class LlmUsage(Base):
     callsite: Mapped[str] = mapped_column(Text, nullable=False)
     model: Mapped[str] = mapped_column(Text, nullable=False)
     input_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=text("0"))
-    output_tokens: Mapped[int] = mapped_column(
-        BigInteger, nullable=False, server_default=text("0")
-    )
+    output_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=text("0"))
     requests: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
 
     __table_args__ = (
@@ -967,6 +975,9 @@ class UploadBatch(Base):
     )
     name: Mapped[str | None] = mapped_column(Text)
     trade_date: Mapped[date] = mapped_column(Date, nullable=False)
+    processing_mode: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'full'")
+    )
     status: Mapped[str] = mapped_column(
         batch_status_enum,
         nullable=False,
@@ -1098,7 +1109,9 @@ class TranscriptSegment(Base):
     language: Mapped[str | None] = mapped_column(Text)
     confidence: Mapped[float | None] = mapped_column(Float)
 
-    __table_args__ = (Index("ix_transcript_segments_transcript_id_start_ms", "transcript_id", "start_ms"),)
+    __table_args__ = (
+        Index("ix_transcript_segments_transcript_id_start_ms", "transcript_id", "start_ms"),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1153,7 +1166,9 @@ class SttUsage(Base):
     audio_seconds: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=text("0"))
     requests: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
 
-    __table_args__ = (UniqueConstraint("day", "provider", "model", name="uq_stt_usage_day_provider_model"),)
+    __table_args__ = (
+        UniqueConstraint("day", "provider", "model", name="uq_stt_usage_day_provider_model"),
+    )
 
 
 class AuditLog(Base):

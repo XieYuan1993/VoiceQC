@@ -20,7 +20,7 @@ from voiceqa_shared.db_models import Recording, UploadBatch
 from worker.celery_app import app
 from worker.db import SessionLocal, get_setting
 
-AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".flac", ".ogg"}
+AUDIO_EXTS = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".opus"}
 
 # Zip-bomb guards.
 MAX_ZIP_MEMBERS = 500
