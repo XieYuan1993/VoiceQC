@@ -1559,6 +1559,23 @@ export interface components {
             /** Incorrect Answer Calls */
             incorrect_answer_calls: number;
         };
+        /** AudioReviewOut */
+        AudioReviewOut: {
+            /** Start Ms */
+            start_ms: number;
+            /** End Ms */
+            end_ms: number;
+            /** Channel Role */
+            channel_role: string;
+            /** Original Text */
+            original_text: string;
+            /** Suggested Text */
+            suggested_text: string | null;
+            /** Status */
+            status: string;
+            /** Reason */
+            reason: string;
+        };
         /** AuditEntryOut */
         AuditEntryOut: {
             /** Id */
@@ -3126,6 +3143,8 @@ export interface components {
             full_text: string;
             /** Segments */
             segments: components["schemas"]["SegmentOut"][];
+            /** Audio Reviews */
+            audio_reviews?: components["schemas"]["AudioReviewOut"][] | null;
         };
         /** TrendPoint */
         TrendPoint: {

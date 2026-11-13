@@ -1089,6 +1089,7 @@ class Transcript(Base):
     # migration) — Postgres FTS tokenizes Chinese poorly, trigram substring
     # search is the pragmatic choice.
     full_text: Mapped[str] = mapped_column(Text, nullable=False)
+    audio_reviews: Mapped[list[dict] | None] = mapped_column(JSONB)
     billed_seconds: Mapped[float | None] = mapped_column(Numeric(10, 2))
     created_at: Mapped[datetime] = _now()
 

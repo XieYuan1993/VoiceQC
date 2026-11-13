@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -156,6 +157,7 @@ VALIDATORS: dict[str, Any] = {
     "asr.mono_speaker_repair": _v_bool,
     "asr.mono_speaker_repair_model": _v_nonempty_str,
     "asr.post_correction_enabled": _v_bool,
+    "asr.audio_review_enabled": _v_bool,
     "asr.post_correction_allow_numeric_changes": _v_bool,
     "asr.post_correction_provider": _v_llm_provider,
     "asr.post_correction_model": _v_nonempty_str,
@@ -189,7 +191,10 @@ async def list_settings(
             .order_by(AppSetting.key)
         )
     ).scalars().all()
-    return [SettingOut(key=r.key, value=r.value, updated_at=r.updated_at) for r in rows]
+    result = [SettingOut(key=r.key, value=r.value, updated_at=r.updated_at) for r in rows]
+    if not any(row.key == "asr.audio_review_enabled" for row in rows):
+        result.append(SettingOut(key="asr.audio_review_enabled", value=False, updated_at=datetime.now(UTC)))
+    return result
 
 
 @router.put("/{key}", response_model=SettingOut)

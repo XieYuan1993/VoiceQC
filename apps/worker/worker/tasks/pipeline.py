@@ -38,6 +38,7 @@ from voiceqa_shared.db_models import (
 from worker import audio
 from worker.asr import factory
 from worker.asr.base import AdaptationPhrase, ChannelFile
+from worker.audio_review import review_project_audio
 from worker.celery_app import app
 from worker.db import SessionLocal, get_setting
 from worker.mono_speaker_repair import parse_repaired_speaker_turns, repair_mono_transcript
@@ -656,6 +657,22 @@ def transcribe(
             ]
             full_text = _format_transcript_turns(stored_turns)
 
+        source_turns = stored_turns or display_turns
+        original_segments = {(role, seg.start_ms): seg for role, seg in segments}
+        review_input = []
+        for index, (role, start_ms, text_value) in enumerate(source_turns):
+            source = original_segments.get((role, start_ms))
+            end_ms = source.end_ms if source else (
+                source_turns[index + 1][1] if index + 1 < len(source_turns) else start_ms + 3_000
+            )
+            review_input.append({
+                "role": role, "start_ms": start_ms, "end_ms": max(start_ms + 1, end_ms),
+                "text": text_value, "confidence": source.confidence if source else None,
+            })
+        _, audio_reviews = review_project_audio(
+            review_input, files=files, session=session, project_id=project_id,
+        )
+
         # Replace any prior transcript (reprocess path).
         old = session.execute(
             select(Transcript.id).where(Transcript.recording_id == rec.id)
@@ -668,6 +685,7 @@ def transcribe(
             stt_model=model,
             language_detected=max(languages, key=languages.get) if languages else None,
             full_text=full_text,
+            audio_reviews=audio_reviews,
             billed_seconds=round(billed, 2),
         )
         session.add(transcript)

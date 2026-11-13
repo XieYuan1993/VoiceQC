@@ -352,7 +352,9 @@ export function AppSettingsSection({
             <TableBody>
               {settings.map((s) => (
                 <TableRow key={s.key}>
-                  <TableCell className="whitespace-nowrap font-mono text-xs">{s.key}</TableCell>
+                  <TableCell className="whitespace-nowrap font-mono text-xs">
+                    {s.key === "asr.audio_review_enabled" ? "Audio review" : s.key}
+                  </TableCell>
                   <TableCell className="max-w-[420px]">
                     <code
                       className="block truncate rounded bg-muted/60 px-1.5 py-0.5 font-mono text-xs"

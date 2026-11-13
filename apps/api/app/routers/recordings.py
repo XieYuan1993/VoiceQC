@@ -600,6 +600,7 @@ async def get_transcript(
         if transcript.billed_seconds is not None
         else None,
         full_text=transcript.full_text,
+        audio_reviews=transcript.audio_reviews,
         segments=[
             SegmentOut(
                 channel_role=s.channel_role,

@@ -185,6 +185,16 @@ class SegmentOut(BaseModel):
     confidence: float | None
 
 
+class AudioReviewOut(BaseModel):
+    start_ms: int
+    end_ms: int
+    channel_role: str
+    original_text: str
+    suggested_text: str | None
+    status: str
+    reason: str
+
+
 class TranscriptOut(BaseModel):
     recording_id: uuid.UUID
     stt_model: str
@@ -192,6 +202,7 @@ class TranscriptOut(BaseModel):
     billed_seconds: float | None
     full_text: str
     segments: list[SegmentOut]
+    audio_reviews: list[AudioReviewOut] | None = None
 
 
 # --- Phase 1: industry terms + settings -------------------------------------

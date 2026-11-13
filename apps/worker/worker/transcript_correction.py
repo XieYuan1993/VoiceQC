@@ -32,6 +32,9 @@ _MIN_TEXT_SIMILARITY = 0.55
 _DIGIT_GROUP_RE = re.compile(r"\d(?:[\d\s-]*\d)?")
 _CJK_NUMBER_GROUP_RE = re.compile(r"[零〇一二三四五六七八九兩两幺]{3,}")
 _ALNUM_RE = re.compile(r"[^\w\u3400-\u9fff]+", re.UNICODE)
+_SERVICE_GREETING = re.compile(r"請問.{0,15}(?:幫到|幫助|幫您|幫你)")
+_SELF_INTRODUCTION = re.compile(r"我(?:係|是|叫|姓)")
+_GREETING_ARTIFACTS = {"5萬份保險": "富衛保險", "5万份保险": "富衛保險"}
 _TRANSIENT_ERROR_MARKERS = (
     "timed out",
     "timeout",
@@ -211,6 +214,36 @@ def _text_change_is_safe(original: str, corrected: str) -> bool:
     return True
 
 
+def _repair_greeting_term(
+    turn: TranscriptTurn,
+    candidate: str,
+    glossary: list[dict[str, Any]],
+    replacements: list[dict[str, str]],
+) -> str:
+    if turn.role != "broker" or not _SERVICE_GREETING.search(turn.text):
+        return turn.text
+    if not _SELF_INTRODUCTION.search(turn.text):
+        return turn.text
+    approved = {item.get("term") for item in glossary}
+    rules = {
+        item["wrong"]: item["correct"]
+        for item in replacements
+        if item.get("wrong") and item.get("correct") in approved
+        and "opening greeting" in item.get("context", "").lower()
+    }
+    if "富衛" in approved and any(value == "富衛" for value in rules.values()):
+        rules.update({wrong: correct for wrong, correct in _GREETING_ARTIFACTS.items() if correct in approved})
+    for wrong, correct in sorted(rules.items(), key=lambda item: -len(item[0])):
+        match = re.match(r"(?:[\s\uff0c,\u3002\uff01!]*(?:喂|餵|嗯|哦|早晨|午安|您好|你好)[\s\uff0c,\u3002\uff01!]*)?" + re.escape(wrong), turn.text)
+        if not match or match.end() > 18:
+            continue
+        if correct not in candidate[:18] or not _SERVICE_GREETING.search(candidate):
+            continue
+        start = match.end() - len(wrong)
+        return turn.text[:start] + correct + turn.text[match.end():]
+    return turn.text
+
+
 def _build_prompt(
     context: list[dict[str, Any]],
     target_ids: list[int],
@@ -274,6 +307,7 @@ def correct_turns_with_llm(
     replacements: list[dict[str, str]],
     session,
     allow_numeric_changes: bool = False,
+    repair_greeting_terms: bool = True,
 ) -> tuple[list[TranscriptTurn], bool]:
     """Correct turns and return ``(turns, changed)``."""
     if not turns or sum(len(turn.text) for turn in turns) < 20:
@@ -372,19 +406,24 @@ def correct_turns_with_llm(
             candidate = " ".join(str(item.get("text") or "").splitlines()).strip()
             raw_evidence = item.get("numeric_evidence_ids") or []
             evidence_ids = [value for value in raw_evidence if isinstance(value, int)]
-            if not _text_change_is_safe(original.text, candidate):
-                logger.debug("rejected unsafe transcript rewrite for turn {}", turn_id)
-                continue
-            if not _numeric_change_is_supported(
+            text_safe = _text_change_is_safe(original.text, candidate)
+            numbers_safe = _numeric_change_is_supported(
                 original.text,
                 candidate,
                 evidence_ids,
                 indexed_turns,
                 turn_id=turn_id,
                 allow_numeric_changes=allow_numeric_changes,
-            ):
-                logger.debug("rejected unsupported numeric rewrite for turn {}", turn_id)
-                continue
+            )
+            if not text_safe or not numbers_safe:
+                brand_text = (
+                    _repair_greeting_term(original, candidate, glossary, replacements)
+                    if repair_greeting_terms else original.text
+                )
+                if brand_text == original.text:
+                    logger.debug("rejected unsafe transcript rewrite for turn {}", turn_id)
+                    continue
+                candidate = brand_text
             if candidate != original.text:
                 corrected[turn_id] = TranscriptTurn(
                     role=original.role,

@@ -641,6 +641,25 @@ export function RecordingDetailView({
               </p>
             ) : (
               <div className="space-y-4">
+                {transcript.audio_reviews && transcript.audio_reviews.length > 0 && (
+                  <section className="space-y-3 border-b pb-4">
+                    <h3 className="text-sm font-semibold">Audio review</h3>
+                    {transcript.audio_reviews.map((review, index) => (
+                      <div key={index} className="space-y-1 border-l-2 border-amber-400 pl-3 text-sm">
+                        <div className="flex items-center gap-3">
+                          <Button variant="ghost" size="sm" onClick={() => seekTo(review.start_ms)}>
+                            {Math.floor(review.start_ms / 60000)}:{String(Math.floor(review.start_ms / 1000) % 60).padStart(2, "0")}
+                          </Button>
+                          <span>{review.status === "needs_review" ? "Needs review" : review.status === "confirmed" ? "Confirmed" : "Review unavailable"}</span>
+                        </div>
+                        <p><span className="text-muted-foreground">Original: </span>{review.original_text}</p>
+                        {review.suggested_text && <p><span className="text-muted-foreground">Audio suggestion: </span>{review.suggested_text}</p>}
+                        {review.reason === "numeric_conflict" && <p className="text-amber-700">Number conflict; original retained.</p>}
+                        {review.reason === "uncertain" && <p className="text-amber-700">Audio unclear; original retained.</p>}
+                      </div>
+                    ))}
+                  </section>
+                )}
                 {showRaw && (
                   <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-md border bg-muted/50 p-3 font-mono text-xs">
                     {transcript.full_text}
