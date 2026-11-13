@@ -23,9 +23,10 @@ def _sync_dsn(value: str) -> str:
 def setup(database_url: str, slug: str, name: str) -> None:
     engine = create_engine(_sync_dsn(database_url), pool_pre_ping=True)
     metadata = MetaData()
-    metadata.reflect(bind=engine, only=("projects", "app_settings"))
+    metadata.reflect(bind=engine, only=("projects", "app_settings", "recordings"))
     projects = metadata.tables["projects"]
     settings = metadata.tables["app_settings"]
+    recordings = metadata.tables["recordings"]
 
     modules = {"trade_reconciliation": False, "transcription_only": True}
     branding = {
@@ -38,6 +39,7 @@ def setup(database_url: str, slug: str, name: str) -> None:
         "Use Traditional Chinese (Hong Kong) terminology and Arabic numerals."
     )
 
+    swapped_channels = 0
     with engine.begin() as connection:
         project_id = connection.execute(
             select(projects.c.id).where(projects.c.slug == slug)
@@ -71,10 +73,40 @@ def setup(database_url: str, slug: str, name: str) -> None:
                 )
             )
 
+        previous_broker_channel = connection.execute(
+            select(settings.c.value).where(
+                settings.c.project_id == project_id,
+                settings.c.key == "audio.broker_channel",
+            )
+        ).scalar_one_or_none()
+        if previous_broker_channel != "right":
+            swap_result = connection.execute(
+                update(recordings)
+                .where(
+                    recordings.c.project_id == project_id,
+                    recordings.c.gcs_uri_broker.is_not(None),
+                    recordings.c.gcs_uri_customer.is_not(None),
+                )
+                .values(
+                    gcs_uri_broker=recordings.c.gcs_uri_customer,
+                    gcs_uri_customer=recordings.c.gcs_uri_broker,
+                )
+            )
+            swapped_channels = swap_result.rowcount
+
         setting_values = {
+            "audio.broker_channel": "right",
+            "asr.adaptation": "all",
+            "asr.adaptation_boost": 7,
+            "asr.model": "16k_zh_en",
             "asr.output_script": "traditional",
             "asr.language_mode": "auto",
             "asr.mono_speaker_repair": True,
+            "asr.post_correction_enabled": True,
+            "asr.post_correction_allow_numeric_changes": False,
+            "asr.post_correction_provider": "dashscope",
+            "asr.post_correction_model": "qwen3.7-max",
+            "asr.provider": "tencent",
         }
         connection.execute(
             delete(settings).where(
@@ -90,7 +122,10 @@ def setup(database_url: str, slug: str, name: str) -> None:
             ],
         )
 
-    print(f"FWD demo workspace ready: {name} ({slug})")
+    print(
+        f"FWD demo workspace ready: {name} ({slug}); "
+        f"corrected {swapped_channels} existing stereo recording(s)"
+    )
 
 
 def main() -> None:

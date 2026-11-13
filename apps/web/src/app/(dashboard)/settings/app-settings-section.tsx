@@ -54,6 +54,12 @@ const EXECUTION_TYPE_OPTIONS = [
   "CanceledExec",
 ];
 
+const INTERNAL_SETTING_KEYS = new Set([
+  "asr.post_correction_provider",
+  "asr.post_correction_model",
+  "asr.post_correction_replacements",
+]);
+
 const SELECT_OPTIONS: Record<string, Array<{ value: string; label: string }>> = {
   "asr.provider": [
     { value: "tencent", label: "Tencent ASR" },
@@ -303,7 +309,7 @@ export function AppSettingsSection({
       const list = await apiCall("/api/settings", "get", {
         params: { query: { project_id: projectId || undefined } },
       });
-      setSettings(list);
+      setSettings(list.filter((setting) => !INTERNAL_SETTING_KEYS.has(setting.key)));
       setLoadError(null);
     } catch (e) {
       setLoadError(getApiErrorMessage(e));

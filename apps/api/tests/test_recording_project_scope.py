@@ -1,7 +1,7 @@
 import uuid
 
 import pytest
-from app.routers.recordings import _get_scoped
+from app.routers.recordings import _get_scoped, _reprocess_asr_options
 from fastapi import HTTPException
 from voiceqa_shared.db_models import Recording, User
 
@@ -47,3 +47,13 @@ async def test_get_scoped_hides_recording_from_another_project() -> None:
 
     assert exc_info.value.status_code == 404
     assert exc_info.value.detail == "recording not found"
+
+
+def test_reprocess_stt_reuses_last_selected_asr_provider() -> None:
+    recording = _recording(uuid.uuid4())
+    recording.rerun_asr_provider = "tencent"
+    recording.rerun_asr_model = "16k_zh_en"
+
+    assert _reprocess_asr_options(recording, "stt") == ("tencent", "16k_zh_en")
+    assert _reprocess_asr_options(recording, "convert") == ("tencent", "16k_zh_en")
+    assert _reprocess_asr_options(recording, "eval") == (None, None)

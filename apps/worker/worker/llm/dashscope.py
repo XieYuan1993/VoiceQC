@@ -56,7 +56,13 @@ def _schema_hint(schema: dict[str, Any]) -> str:
 class DashScopeLLM:
     provider = "dashscope"
 
-    def __init__(self, *, api_key: str | None = None, base_url: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        enable_thinking: bool | None = None,
+    ) -> None:
         from worker.settings import settings
 
         self.api_key = api_key or settings.DASHSCOPE_API_KEY.get_secret_value()
@@ -67,6 +73,7 @@ class DashScopeLLM:
         if not raw_base:
             raw_base = "https://dashscope.aliyuncs.com"
         self.base_url = raw_base.rstrip("/") + "/compatible-mode/v1"
+        self.enable_thinking = enable_thinking
 
     def generate_structured(
         self,
@@ -87,6 +94,11 @@ class DashScopeLLM:
             "temperature": temperature,
             "response_format": {"type": "json_object"},
         }
+        if self.enable_thinking is not None:
+            # Non-standard OpenAI-compatible parameter supported by Model Studio.
+            # Transcript proofreading is deterministic and does not benefit from
+            # the Qwen 3.x default long-thinking mode.
+            payload["enable_thinking"] = self.enable_thinking
 
         with httpx.Client(timeout=_TIMEOUT) as client:
             resp = client.post(

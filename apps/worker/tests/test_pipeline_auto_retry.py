@@ -104,6 +104,46 @@ def test_permanent_provider_failure_is_not_automatically_retried(monkeypatch) ->
     assert progress_updates == [str(recording.batch_id)]
 
 
+def test_tencent_download_failure_retries_with_a_fresh_task(monkeypatch) -> None:
+    recording = SimpleNamespace(
+        id=uuid.uuid4(),
+        batch_id=uuid.uuid4(),
+        auto_retry_remaining=2,
+        rerun_asr_provider="tencent",
+        rerun_asr_model="16k_zh_en",
+        gcs_uri_broker="gs://bucket/broker.flac",
+        gcs_uri_customer="gs://bucket/customer.flac",
+        gcs_uri_mono=None,
+        stt_operation_name="failed-tencent-task",
+        stt_started_at=datetime.now(UTC),
+        status="transcribing",
+        failed_stage=None,
+        error=None,
+        attempts=0,
+    )
+    session = _Session(recording)
+    dispatched = []
+    monkeypatch.setattr(pipeline, "SessionLocal", lambda: session)
+    monkeypatch.setattr(
+        pipeline,
+        "_dispatch_auto_retry",
+        lambda *args: dispatched.append(args),
+    )
+
+    pipeline._fail(
+        str(recording.id),
+        "stt",
+        RuntimeError("Tencent ASR task 123 failed: Failed to download audio file!"),
+    )
+
+    assert recording.status == "transcribing"
+    assert recording.failed_stage is None
+    assert recording.stt_operation_name is None
+    assert recording.stt_started_at is None
+    assert recording.auto_retry_remaining == 1
+    assert dispatched == [(str(recording.id), "stt", "tencent", "16k_zh_en")]
+
+
 def test_stt_timeout_starts_only_after_remote_slot_is_claimed() -> None:
     now = datetime.now(UTC)
     queued = SimpleNamespace(stt_started_at=None)

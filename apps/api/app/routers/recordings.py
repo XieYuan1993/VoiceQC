@@ -758,6 +758,12 @@ async def get_audio(
     )
 
 
+def _reprocess_asr_options(rec: Recording, from_stage: str) -> tuple[str | None, str | None]:
+    if from_stage == "eval":
+        return None, None
+    return rec.rerun_asr_provider, rec.rerun_asr_model
+
+
 @router.post("/{recording_id}/reprocess", response_model=RecordingOut)
 async def reprocess(
     recording_id: uuid.UUID,
@@ -768,6 +774,7 @@ async def reprocess(
     meta: ClientMeta = Depends(client_meta),
 ) -> RecordingOut:
     rec = await _get_scoped(session, user, recording_id, project_id)
+    asr_provider, asr_model = _reprocess_asr_options(rec, from_stage)
     if rec.status in ("converting", "transcribing", "evaluating"):
         raise HTTPException(status.HTTP_409_CONFLICT, f"recording is busy ({rec.status})")
     if from_stage == "stt" and not (rec.gcs_uri_broker or rec.gcs_uri_mono):
@@ -804,10 +811,19 @@ async def reprocess(
         actor_email=user.email,
         object_type="recording",
         object_id=str(rec.id),
-        details={"from_stage": from_stage},
+        details={
+            "from_stage": from_stage,
+            "asr_provider": asr_provider,
+            "asr_model": asr_model,
+        },
         ip=meta.ip,
         user_agent=meta.user_agent,
     )
     await session.commit()
-    queue.send_pipeline_chain(str(rec.id), from_stage=from_stage)
+    queue.send_pipeline_chain(
+        str(rec.id),
+        from_stage=from_stage,
+        asr_provider=asr_provider,
+        asr_model=asr_model,
+    )
     return _out(rec, False)

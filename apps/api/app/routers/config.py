@@ -124,6 +124,28 @@ def _v_boost(v: Any) -> None:
         raise ValueError("must be a number in [0, 20]")
 
 
+def _v_llm_provider(v: Any) -> None:
+    if v not in ("gemini", "dashscope"):
+        raise ValueError("must be 'gemini' or 'dashscope'")
+
+
+def _v_correction_replacements(v: Any) -> None:
+    if not isinstance(v, list) or len(v) > 500:
+        raise ValueError("must be a list with at most 500 correction rules")
+    for index, item in enumerate(v):
+        if not isinstance(item, dict) or not {"wrong", "correct"} <= set(item):
+            raise ValueError(f"rule {index} needs wrong and correct strings")
+        if set(item) - {"wrong", "correct", "context"}:
+            raise ValueError(f"rule {index} has unknown fields")
+        for key in ("wrong", "correct"):
+            value = item.get(key)
+            if not isinstance(value, str) or not value.strip() or len(value) > 200:
+                raise ValueError(f"rule {index} {key} must be a non-empty short string")
+        context = item.get("context", "")
+        if not isinstance(context, str) or len(context) > 1000:
+            raise ValueError(f"rule {index} context must be a string up to 1000 characters")
+
+
 VALIDATORS: dict[str, Any] = {
     "asr.provider": _v_provider,
     "asr.language_mode": _v_language_mode,
@@ -133,6 +155,11 @@ VALIDATORS: dict[str, Any] = {
     "asr.adaptation_boost": _v_boost,
     "asr.mono_speaker_repair": _v_bool,
     "asr.mono_speaker_repair_model": _v_nonempty_str,
+    "asr.post_correction_enabled": _v_bool,
+    "asr.post_correction_allow_numeric_changes": _v_bool,
+    "asr.post_correction_provider": _v_llm_provider,
+    "asr.post_correction_model": _v_nonempty_str,
+    "asr.post_correction_replacements": _v_correction_replacements,
     "llm.model": _v_nonempty_str,
     "audio.broker_channel": _v_broker_channel,
     "filename.parse_regex": _v_filename_regex,

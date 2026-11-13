@@ -42,6 +42,7 @@ from worker.celery_app import app
 from worker.db import SessionLocal, get_setting
 from worker.mono_speaker_repair import parse_repaired_speaker_turns, repair_mono_transcript
 from worker.settings import settings
+from worker.transcript_correction import correct_project_transcript
 
 _STAGE_BY_STATUS = {
     "uploaded": "convert",
@@ -53,7 +54,6 @@ _STAGE_BY_STATUS = {
 _PERMANENT_AUTO_RETRY_MARKERS = (
     "userhasnoamount",
     "resource pack exhausted",
-    "failed to download audio file",
     "no normalized audio uris",
     "authfailure",
     "invalidcredential",
@@ -433,6 +433,14 @@ def _interleave_turns(seg_pairs: list[tuple[str, object]]) -> list[tuple[str, in
     return out
 
 
+def _format_transcript_turns(turns: list[tuple[str, int, str]]) -> str:
+    lines: list[str] = []
+    for role, start_ms, turn_text in turns:
+        mm, ss = divmod(start_ms // 1000, 60)
+        lines.append(f"[{mm:02d}:{ss:02d}] {role}: {turn_text}")
+    return "\n".join(lines)
+
+
 def _collapse_duplicate_role_channels(
     segments: list[tuple[str, object]],
 ) -> tuple[list[tuple[str, object]], bool]:
@@ -608,12 +616,15 @@ def transcribe(
             )
 
         output_script = get_setting(session, project_id, "asr.output_script", "original")
-        lines = []
-        for role, start_ms, text in _interleave_turns(segments):
-            mm, ss = divmod(start_ms // 1000, 60)
-            display_text = _apply_output_script(_spoken_digits_to_arabic(text), output_script)
-            lines.append(f"[{mm:02d}:{ss:02d}] {role}: {display_text}")
-        full_text = "\n".join(lines)
+        display_turns = [
+            (
+                role,
+                start_ms,
+                _apply_output_script(_spoken_digits_to_arabic(text), output_script),
+            )
+            for role, start_ms, text in _interleave_turns(segments)
+        ]
+        full_text = _format_transcript_turns(display_turns)
         repaired_turns: list[tuple[str, int, str]] = []
 
         is_mono_mixed = duplicate_role_channels or bool(
@@ -632,6 +643,19 @@ def transcribe(
             )
             repaired_turns = parse_repaired_speaker_turns(full_text)
 
+        corrected_turns, correction_changed = correct_project_transcript(
+            repaired_turns or display_turns,
+            session=session,
+            project_id=project_id,
+        )
+        stored_turns = repaired_turns
+        if correction_changed:
+            stored_turns = [
+                (role, start_ms, _apply_output_script(text, output_script))
+                for role, start_ms, text in corrected_turns
+            ]
+            full_text = _format_transcript_turns(stored_turns)
+
         # Replace any prior transcript (reprocess path).
         old = session.execute(
             select(Transcript.id).where(Transcript.recording_id == rec.id)
@@ -648,23 +672,23 @@ def transcribe(
         )
         session.add(transcript)
         session.flush()
-        if repaired_turns:
+        if stored_turns:
             session.add_all(
                 TranscriptSegment(
                     transcript_id=transcript.id,
                     channel_role=role,
                     start_ms=start_ms,
                     end_ms=(
-                        repaired_turns[index + 1][1]
-                        if index + 1 < len(repaired_turns)
-                        and repaired_turns[index + 1][1] > start_ms
+                        stored_turns[index + 1][1]
+                        if index + 1 < len(stored_turns)
+                        and stored_turns[index + 1][1] > start_ms
                         else start_ms + 1
                     ),
                     text=text,
                     language=max(languages, key=languages.get) if languages else None,
                     confidence=None,
                 )
-                for index, (role, start_ms, text) in enumerate(repaired_turns)
+                for index, (role, start_ms, text) in enumerate(stored_turns)
             )
         else:
             session.add_all(
