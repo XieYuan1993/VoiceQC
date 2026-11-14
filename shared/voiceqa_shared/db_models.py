@@ -438,6 +438,24 @@ class ChecklistItem(Base):
     )
 
 
+class KnowledgeFaq(Base):
+    __tablename__ = "knowledge_faqs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    code: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(Text, nullable=False)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    answer: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    demo_notice: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    created_at: Mapped[datetime] = _now()
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (UniqueConstraint("project_id", "code", name="uq_knowledge_faqs_project_code"), Index("ix_knowledge_faqs_project_id", "project_id"))
+
+
 class KnowledgeCard(Base):
     __tablename__ = "knowledge_cards"
 

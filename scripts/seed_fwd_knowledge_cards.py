@@ -11,8 +11,8 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
-from voiceqa_shared.db_models import KnowledgeCard, Project
-from voiceqa_shared.knowledge_cards import parse_card_workbook
+from voiceqa_shared.db_models import KnowledgeCard, KnowledgeFaq, Project
+from voiceqa_shared.knowledge_cards import parse_card_workbook, parse_faq_workbook
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
@@ -24,9 +24,10 @@ def main():
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     cards = parse_card_workbook(args.workbook.read_bytes())
+    faqs = parse_faq_workbook(args.workbook.read_bytes(), required=False)
     if args.dry_run:
         print(
-            f"Found {len(cards)} cards and {sum(len(card['trigger_words']) for card in cards)} triggers"
+            f"Found {len(cards)} cards, {len(faqs)} FAQs and {sum(len(card['trigger_words']) for card in cards)} triggers"
         )
         return
     url = os.environ.get("DATABASE_URL", "")
@@ -41,6 +42,18 @@ def main():
         ).scalar_one_or_none()
         if project_id is None:
             raise SystemExit(f"Project not found: {args.slug}")
+        for faq in faqs:
+            statement = insert(KnowledgeFaq).values(project_id=project_id, **faq)
+            session.execute(
+                statement.on_conflict_do_update(
+                    constraint="uq_knowledge_faqs_project_code",
+                    set_={
+                        key: getattr(statement.excluded, key)
+                        for key in ("category", "question", "answer", "source", "demo_notice")
+                    }
+                    | {"active": True, "updated_at": datetime.now(UTC)},
+                )
+            )
         for card in cards:
             statement = insert(KnowledgeCard).values(project_id=project_id, **card)
             session.execute(
@@ -57,7 +70,7 @@ def main():
             )
         session.flush()
         session.commit()
-    print(f"Imported {len(cards)} knowledge cards into {args.slug}")
+    print(f"Imported {len(cards)} knowledge cards and {len(faqs)} FAQs into {args.slug}")
 
 
 if __name__ == "__main__":

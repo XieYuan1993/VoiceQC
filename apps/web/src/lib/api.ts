@@ -181,7 +181,11 @@ export function uploadMultipart<T>(
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", `${API_URL}${path}`);
+    const url = new URL(`${API_URL}${path}`, window.location.origin);
+    for (const [key, value] of Object.entries(opts.query ?? {})) {
+      if (value != null) url.searchParams.set(key, String(value));
+    }
+    xhr.open("POST", url.toString());
     xhr.withCredentials = true;
 
     if (opts.onProgress) {

@@ -36,7 +36,7 @@ def _normalize(value: str) -> str:
     return " ".join(value.split())
 
 
-def parse_card_workbook(raw: bytes) -> list[dict]:
+def _load_workbook(raw: bytes):
     if len(raw) > MAX_UPLOAD_BYTES:
         raise ValueError("Workbook exceeds the 5 MB limit")
     try:
@@ -48,6 +48,11 @@ def parse_card_workbook(raw: bytes) -> list[dict]:
         raise
     except Exception as exc:
         raise ValueError("Invalid XLSX workbook") from exc
+    return workbook
+
+
+def parse_card_workbook(raw: bytes) -> list[dict]:
+    workbook = _load_workbook(raw)
     try:
         if SHEET not in workbook.sheetnames:
             raise ValueError(f"Missing sheet: {SHEET}")
@@ -92,6 +97,67 @@ def parse_card_workbook(raw: bytes) -> list[dict]:
         if not cards:
             raise ValueError("No knowledge cards found")
         return cards
+    finally:
+        workbook.close()
+
+
+def related_faq_codes(content: dict) -> list[str]:
+    explicit = content.get("related_faq_codes")
+    if isinstance(explicit, list):
+        return list(dict.fromkeys(str(code).upper() for code in explicit))
+    return list(
+        dict.fromkeys(
+            code.upper()
+            for code in re.findall(r"\bF\d+\b", str(content.get("related_questions", "")), re.I)
+        )
+    )
+
+
+def parse_faq_workbook(raw: bytes, *, required: bool = True) -> list[dict]:
+    workbook = _load_workbook(raw)
+    try:
+        sheet_name = "常见问题库"
+        if sheet_name not in workbook.sheetnames:
+            if not required:
+                return []
+            raise ValueError(f"Missing sheet: {sheet_name}")
+        rows = workbook[sheet_name].iter_rows(values_only=True)
+        columns = {
+            str(value).strip(): index
+            for index, value in enumerate(next(rows, ()))
+            if value is not None
+        }
+        if not {"编号", "分类", "问题", "答案"} <= columns.keys():
+            raise ValueError("FAQ sheet requires code, category, question and answer columns")
+        faqs = []
+        seen = set()
+        for row_number, row in enumerate(rows, 2):
+            if row_number > 1001:
+                raise ValueError("FAQ workbook exceeds 1000 rows")
+
+            def cell(name, current_row=row):
+                index = columns[name]
+                return str(current_row[index] or "").strip() if index < len(current_row) else ""
+
+            code = cell("编号").upper()
+            if not re.fullmatch(r"F\d+", code):
+                continue
+            if code in seen or not cell("问题") or not cell("答案"):
+                raise ValueError(f"Duplicate or incomplete FAQ at row {row_number}")
+            seen.add(code)
+            faqs.append(
+                {
+                    "code": code,
+                    "category": cell("分类"),
+                    "question": cell("问题"),
+                    "answer": cell("答案"),
+                    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+                    "demo_notice": "示範資料\uff0c未經 FWD 核實",
+                }
+            )
+        if required and not faqs:
+            raise ValueError("No FAQs found")
+        return faqs
     finally:
         workbook.close()
 

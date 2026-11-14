@@ -8,7 +8,6 @@ import { canManage } from "@/lib/roles";
 
 import { cookieHeader } from "../_data";
 import { AppSettingsSection } from "./app-settings-section";
-import { KnowledgeCardsSection } from "./knowledge-cards-section";
 
 export default async function SettingsPage() {
   const session = await auth();
@@ -53,7 +52,7 @@ export default async function SettingsPage() {
       </Card>
 
       <AppSettingsSection canManage={manage} projectId={projectId} />
-      <KnowledgeCardsSection key={projectId} canManage={manage} projectId={projectId} />
+      <Link href="/knowledge" className="inline-flex items-center gap-2 text-sm text-primary">管理知識卡片及常見問題<ArrowRight className="h-4 w-4" /></Link>
     </div>
   );
 }

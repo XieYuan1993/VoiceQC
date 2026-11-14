@@ -31,7 +31,6 @@ import type { KnowledgeCard, RecordingDetail, Transcript, TranscriptSegment } fr
 import { cn } from "@/lib/utils";
 
 import { EvaluationPanel } from "./evaluation-panel";
-import { TranscriptKnowledgeCards } from "./transcript-knowledge-cards";
 
 const POLL_MS = 5000;
 // Statuses the pipeline moves through on its own — poll while in one.
@@ -228,10 +227,17 @@ export function RecordingDetailView({
   const [selectedKnowledgeCard, setSelectedKnowledgeCard] = React.useState<KnowledgeCard | null>(null);
   const [currentMs, setCurrentMs] = React.useState(0);
   const [playing, setPlaying] = React.useState(false);
+  const [replayTranscript, setReplayTranscript] = React.useState(false);
 
   const recRef = React.useRef<RecordingDetail | null>(null);
   const audioRef = React.useRef<HTMLAudioElement>(null);
   const segmentRefs = React.useRef(new Map<number, HTMLButtonElement>());
+  const transcriptScrollRef = React.useRef<HTMLDivElement>(null);
+  const visibleReplayCount = transcript?.segments.filter((segment) => segment.start_ms <= currentMs).length ?? 0;
+  React.useEffect(() => {
+    const element = transcriptScrollRef.current;
+    if (element && replayTranscript && playing && !selectedKnowledgeCard) element.scrollTop = element.scrollHeight;
+  }, [visibleReplayCount, replayTranscript, playing, selectedKnowledgeCard]);
   const flashTimer = React.useRef<number | null>(null);
   const pendingEvidenceIdx = React.useRef<number | null>(null);
 
@@ -279,6 +285,7 @@ export function RecordingDetailView({
     setSelectedKnowledgeCard(null);
     setCurrentMs(0);
     setPlaying(false);
+    setReplayTranscript(false);
   }, [recordingId, projectId]);
 
   // Light polling while the pipeline works on this recording.
@@ -634,7 +641,8 @@ export function RecordingDetailView({
                   <Download className="mr-2 h-4 w-4" aria-hidden />
                   Segmented file
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => setShowRaw((v) => !v)}>
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={replayTranscript} onChange={(e) => { setReplayTranscript(e.target.checked); setShowRaw(false); if (audioRef.current) { audioRef.current.pause(); audioRef.current.currentTime = 0; } setCurrentMs(0); }} />錄音逐句回放</label>
+                <Button disabled={replayTranscript} variant="ghost" size="sm" onClick={() => setShowRaw((v) => !v)}>
                   {showRaw ? "Hide raw text" : "Show raw text"}
                 </Button>
               </div>
@@ -654,16 +662,7 @@ export function RecordingDetailView({
               </p>
             ) : (
               <div className="space-y-4">
-                <TranscriptKnowledgeCards
-                  key={`${projectId}:${recordingId}`}
-                  matches={transcript.knowledge_cards ?? []}
-                  currentMs={currentMs}
-                  playing={playing}
-                  dialogOpen={selectedKnowledgeCard !== null}
-                  onSelect={setSelectedKnowledgeCard}
-                  onSeek={seekTo}
-                />
-                {transcript.audio_reviews && transcript.audio_reviews.length > 0 && (
+                {!replayTranscript && transcript.audio_reviews && transcript.audio_reviews.length > 0 && (
                   <section className="space-y-3 border-b pb-4">
                     <h3 className="text-sm font-semibold">Audio review</h3>
                     {transcript.audio_reviews.map((review, index) => (
@@ -692,8 +691,9 @@ export function RecordingDetailView({
                     No timed segments — use the raw text above.
                   </p>
                 ) : (
-                  <div className="max-h-[36rem] space-y-2 overflow-y-auto pr-1">
-                    {transcript.segments.map((s, i) => (
+                  <div ref={transcriptScrollRef} className="max-h-[36rem] space-y-2 overflow-y-auto pr-1" aria-live={replayTranscript ? "polite" : "off"}>
+                    {replayTranscript && currentMs === 0 && <p className="p-3 text-sm text-muted-foreground">等待錄音播放…</p>}
+                    {transcript.segments.map((s, i) => (!replayTranscript || s.start_ms <= currentMs) && (
                       <div key={i} className="space-y-1">
                       <SegmentBubble
                         segment={s}
@@ -706,9 +706,10 @@ export function RecordingDetailView({
                       />
                       <div className={cn("flex flex-wrap gap-1", s.channel_role === "customer" && "justify-end")}>
                         {(transcript.knowledge_cards ?? []).filter((match) => match.hits.some((hit) => hit.segment_index === i)).map((match) => (
-                          <Button key={match.card.id} variant="ghost" size="sm" className="h-7 max-w-full text-xs text-primary" onClick={() => setSelectedKnowledgeCard(match.card)} title={match.card.title}>
-                            <BookOpen className="mr-1 h-3 w-3 shrink-0" aria-hidden />{match.card.code}
-                          </Button>
+                          <button type="button" key={match.card.id} className="max-w-xl rounded-md border border-primary/25 bg-primary/5 p-3 text-left text-sm hover:bg-primary/10" onClick={() => setSelectedKnowledgeCard(match.card)}>
+                            <span className="flex items-start gap-2 font-medium text-primary"><BookOpen className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />知識卡片 · {match.card.code} · {match.card.title}</span>
+                            {match.card.content.suggested_reply && <span className="mt-2 block line-clamp-2 break-words"><span className="text-muted-foreground">建議回覆：</span>{match.card.content.suggested_reply}</span>}
+                          </button>
                         ))}
                       </div>
                       </div>
@@ -720,7 +721,7 @@ export function RecordingDetailView({
           </CardContent>
         )}
       </Card>
-      <KnowledgeCardDialog card={selectedKnowledgeCard} onClose={() => setSelectedKnowledgeCard(null)} />
+      <KnowledgeCardDialog projectId={projectId} card={selectedKnowledgeCard} onClose={() => setSelectedKnowledgeCard(null)} />
     </div>
   );
 }

@@ -8,6 +8,8 @@ from voiceqa_shared.knowledge_cards import (
     CONTENT_COLUMNS,
     match_knowledge_cards,
     parse_card_workbook,
+    parse_faq_workbook,
+    related_faq_codes,
 )
 
 
@@ -20,6 +22,32 @@ def card(words=None, active=True):
         "content": {},
         "active": active,
     }
+
+
+def test_faq_workbook_parser_and_legacy_references():
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "常见问题库"
+    sheet.append(["编号", "分类", "问题", "答案", "关联卡片"])
+    sheet.append(["F01", "理赔", "Question?", "Answer", "K01"])
+    sheet.append(["问答数", 1])
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    workbook.close()
+    assert parse_faq_workbook(buffer.getvalue())[0]["answer"] == "Answer"
+    assert related_faq_codes({"related_questions": "f01 Question; F02 another"}) == ["F01", "F02"]
+    assert related_faq_codes({"related_faq_codes": [], "related_questions": "F01"}) == []
+
+
+def test_faq_seed_contains_43_valid_questions():
+    payload = json.loads(
+        (
+            Path(__file__).resolve().parents[2] / "infra/migrations/data/0021_fwd_faqs.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert len(payload) == 43
+    assert len({row["code"] for row in payload}) == 43
+    assert all(row["question"] and row["answer"] and row["demo_notice"] for row in payload)
 
 
 def segment(text):

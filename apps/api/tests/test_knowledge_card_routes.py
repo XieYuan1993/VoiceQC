@@ -40,6 +40,7 @@ async def test_import_upserts_into_only_requested_project(monkeypatch, existing,
         lambda raw: [{"code": "K01", "title": "Title", "trigger_words": ["FPS"], "content": {}}],
     )
     monkeypatch.setattr(knowledge_cards, "log_audit", lambda *args, **kwargs: None)
+    monkeypatch.setattr(knowledge_cards, "parse_faq_workbook", lambda raw, required: [])
 
     class Session:
         async def execute(self, statement):

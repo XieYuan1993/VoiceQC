@@ -49,7 +49,7 @@ from app.permissions import (
     has_perm,
     require,
 )
-from app.routers.knowledge_cards import card_dict
+from app.routers.knowledge_cards import cards_with_faqs
 from app.schemas import (
     BulkRerunOut,
     RecordingDetail,
@@ -588,7 +588,7 @@ async def get_transcript(
         KnowledgeCard.project_id == rec.project_id, KnowledgeCard.active.is_(True),
     ).order_by(KnowledgeCard.code))).scalars().all()
     card_matches = match_knowledge_cards(
-        [card_dict(card) for card in cards],
+        await cards_with_faqs(session, rec.project_id, cards),
         [{"text": segment.text, "start_ms": segment.start_ms, "end_ms": segment.end_ms} for segment in segments],
     )
     log_audit(

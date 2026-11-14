@@ -2,6 +2,7 @@
 
 import {
   AudioLines,
+  BookOpen,
   Inbox,
   Layers,
   LayoutDashboard,
@@ -33,6 +34,7 @@ const WORKSPACE: ReadonlyArray<NavItem> = [
   { href: "/agents", label: "Agent scorecards", icon: Users },
   { href: "/batches", label: "Batches", icon: Layers },
   { href: "/evaluator", label: "Evaluator", icon: ListChecks, pill: "AI" },
+  { href: "/knowledge", label: "Knowledge", icon: BookOpen },
 ];
 
 const MODULES: ReadonlyArray<NavItem> = [

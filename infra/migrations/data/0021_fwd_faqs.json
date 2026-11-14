@@ -1,0 +1,346 @@
+[
+  {
+    "code": "F01",
+    "category": "理賠",
+    "question": "新保單的索償為何要做調查？",
+    "answer": "保單生效初期（首兩年內）的索償，一般需核實投保時披露的健康資料，因此會向醫院或醫生索取過往病歷。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F02",
+    "category": "理賠",
+    "question": "索償調查一般需時多久？",
+    "answer": "視乎醫療報告何時齊備；公立醫院報告一般約需 2 個月。報告齊備後，理賠部會盡快作出決定。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F03",
+    "category": "理賠",
+    "question": "醫療報告的費用由誰支付？",
+    "answer": "公司會先行預付基本報告費用；如醫院收費較高，醫院會另行通知補付差額。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F04",
+    "category": "理賠",
+    "question": "可否自行向醫院索取報告？",
+    "answer": "可以，客戶自行索取的報告可直接提交理賠部，有助加快處理。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F05",
+    "category": "理賠",
+    "question": "意外急症的費用是否也要先計自付費？",
+    "answer": "是，意外急症費用亦按保單年度先計算自付費，詳情以保單條款為準。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F06",
+    "category": "理賠",
+    "question": "甚麼情況可以豁免自付費？",
+    "answer": "確診指定嚴重疾病後，可豁免該保單年度的自付費。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F07",
+    "category": "理賠",
+    "question": "團體醫療已賠付的金額可否計入自付費？",
+    "answer": "可以，其他醫療保障已賠付的合資格費用可計入自付費。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F08",
+    "category": "理賠",
+    "question": "補交文件後多久會更新狀態？",
+    "answer": "一般約 3 至 5 個工作天，App 狀態或未即時更新。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F09",
+    "category": "理賠",
+    "question": "App 顯示同日已有申請，還要重新提交嗎？",
+    "answer": "毋須重新提交，補交文件會歸入原有個案。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F10",
+    "category": "理賠",
+    "question": "甚麼情況需要提交收據正本？",
+    "answer": "單一索償超過港幣 50,000 元，或個案被隨機抽查時，須提交收據正本。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F11",
+    "category": "理賠",
+    "question": "收據正本應寄往哪裡？",
+    "answer": "寄回理賠部，並於信封註明「理賠部」。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F12",
+    "category": "理賠",
+    "question": "正本寄失了怎麼辦？",
+    "answer": "須簽署聲明，並補交其他證明文件。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F13",
+    "category": "理賠",
+    "question": "賠款可否以轉數快收取？",
+    "answer": "可以；如轉賬不成功，系統會改以支票發出。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F14",
+    "category": "理賠",
+    "question": "轉數快收款失敗的常見原因？",
+    "answer": "多與登記的轉數快識別碼（電話號碼或電郵）或銀行設定有關，可請客戶核對。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F15",
+    "category": "理賠",
+    "question": "住院現金如何計算？",
+    "answer": "按住院日數計算，每日賠償固定金額，與實際醫療費用無關；公立或私家醫院相同。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F16",
+    "category": "理賠",
+    "question": "入住深切治療部有否額外賠償？",
+    "answer": "入住深切治療部，每日住院現金加倍。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F17",
+    "category": "理賠",
+    "question": "原位癌可否索償？",
+    "answer": "原位癌屬早期疾病，可獲保額的 20%，須按條款定義及病理報告評估。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F18",
+    "category": "理賠",
+    "question": "良性腫瘤可否索償？",
+    "answer": "良性腫瘤不屬於癌症或原位癌定義，一般不符合危疾賠償。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F19",
+    "category": "保單服務",
+    "question": "第三者可否查詢保單資料？",
+    "answer": "只可提供一般保障說明；保單詳情須由保單持有人或獲授權人士查詢。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F20",
+    "category": "身故賠償",
+    "question": "未成年受益人如何填寫申請表？",
+    "answer": "由其父母或合法監護人代為填寫及簽署，並附監護人身份證明及關係證明。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F21",
+    "category": "身故賠償",
+    "question": "身故索償需要甚麼文件？",
+    "answer": "每位受益人的死亡賠償申請表、死亡證明書副本及受益人身份證明文件。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F22",
+    "category": "身故賠償",
+    "question": "身故賠款可否存入銀行戶口？",
+    "answer": "身故賠款一般以支票支付；受益人身處海外可安排電匯。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F23",
+    "category": "身故賠償",
+    "question": "受益人不在香港，如何領取賠款？",
+    "answer": "可簽署第三方授權書由指定人士代領支票，或安排電匯。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F24",
+    "category": "繳費",
+    "question": "為何月繳比年繳貴？",
+    "answer": "月繳、季繳或半年繳設有繳費模式附加費，全年保費一般高於年繳。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F25",
+    "category": "繳費",
+    "question": "更改繳費模式何時生效？",
+    "answer": "一般於保單週年日生效，新保費以保費到期通知書為準。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F26",
+    "category": "繳費",
+    "question": "自動轉賬失敗會怎樣？",
+    "answer": "公司會於下一個指定扣賬日再嘗試扣款，並以短訊或信件通知。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F27",
+    "category": "繳費",
+    "question": "為何一次扣了兩期保費？",
+    "answer": "上一期未能成功扣款時，下一期或會一併扣除兩期保費。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F28",
+    "category": "繳費",
+    "question": "網上銀行繳費的賬單號碼怎樣填？",
+    "answer": "按繳費通知書所列格式輸入，即保單號碼前加指定字頭。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F29",
+    "category": "繳費",
+    "question": "以轉數快繳費多久入賬？",
+    "answer": "一般 1 至 3 個工作天。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F30",
+    "category": "繳費",
+    "question": "掃 QR code 後出現一大串數字怎麼辦？",
+    "answer": "那是賬單資料，毋須另行輸入；核對金額及保單號碼後確認付款即可。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F31",
+    "category": "繳費",
+    "question": "匯款繳費後要提供甚麼？",
+    "answer": "將銀行匯款憑證連同保單號碼電郵至指定郵箱，以便對賬。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F32",
+    "category": "繳費",
+    "question": "已繳費但仍收到催繳通知？",
+    "answer": "多數是尚未完成對賬，請提交匯款憑證以便跟進。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F33",
+    "category": "繳費",
+    "question": "舊的收款戶口還可以用嗎？",
+    "answer": "請使用最新指定收款戶口；存入舊戶口的款項須以人手處理，需時較長。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F34",
+    "category": "繳費",
+    "question": "寬限期有多長？",
+    "answer": "保費到期日後設有 30 日寬限期，期內保障維持有效。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F35",
+    "category": "繳費",
+    "question": "寬限期過後仍未繳費會怎樣？",
+    "answer": "保單或會失效，或啟動自動墊繳保費貸款（如適用）。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F36",
+    "category": "保單服務",
+    "question": "如何查詢現金價值？",
+    "answer": "可致電熱線或透過 App 查閱，以查詢當日系統數值為準；外幣保單以保單貨幣報價。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F37",
+    "category": "保單服務",
+    "question": "退保以外還有甚麼選擇？",
+    "answer": "可考慮保單貸款（最高為保證現金價值的 80%）或部分提取。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F38",
+    "category": "保單服務",
+    "question": "冷靜期內取消與退保有何分別？",
+    "answer": "冷靜期內取消可取回已繳保費；冷靜期後退保則按現金價值支付。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F39",
+    "category": "保單服務",
+    "question": "如何更改通訊地址？",
+    "answer": "可透過 App 或 eServices 自行更改，或遞交更改個人資料申請表。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F40",
+    "category": "保單服務",
+    "question": "更改地址後多久生效？",
+    "answer": "一般需數個工作天，期間寄出的信件仍會寄往舊地址。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F41",
+    "category": "其他",
+    "question": "人壽保險與一般保險的查詢要打哪條熱線？",
+    "answer": "兩者設有不同熱線，如來電不屬本線，同事會為客戶轉接。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F42",
+    "category": "其他",
+    "question": "可否親臨遞交文件？要帶甚麼？",
+    "answer": "可以，請帶備身份證明文件及保單號碼前往客戶服務中心。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  },
+  {
+    "code": "F43",
+    "category": "其他",
+    "question": "健康狀況問卷可以經 App 上載嗎？",
+    "answer": "可以，亦可郵寄或親臨客戶服務中心遞交。",
+    "source": "FWD_Demo_经典场景清单 / 常见问题库",
+    "demo_notice": "示範資料，未經 FWD 核實"
+  }
+]

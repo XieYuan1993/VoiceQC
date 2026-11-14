@@ -919,7 +919,8 @@ export interface paths {
         /** List Cards */
         get: operations["list_cards_api_knowledge_cards_get"];
         put?: never;
-        post?: never;
+        /** Create Card */
+        post: operations["create_card_api_knowledge_cards_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -937,6 +938,59 @@ export interface paths {
         put?: never;
         /** Import Cards */
         post: operations["import_cards_api_knowledge_cards_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/knowledge-cards/{card_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Card */
+        put: operations["update_card_api_knowledge_cards__card_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/knowledge-faqs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Faqs */
+        get: operations["list_faqs_api_knowledge_faqs_get"];
+        put?: never;
+        /** Create Faq */
+        post: operations["create_faq_api_knowledge_faqs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/knowledge-faqs/{faq_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Faq */
+        get: operations["get_faq_api_knowledge_faqs__faq_id__get"];
+        /** Update Faq */
+        put: operations["update_faq_api_knowledge_faqs__faq_id__put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2407,6 +2461,8 @@ export interface components {
             source: string;
             /** Demo Notice */
             demo_notice: string;
+            /** Related Faq Codes */
+            related_faq_codes?: string[];
         };
         /** KnowledgeCardHitOut */
         KnowledgeCardHitOut: {
@@ -2427,6 +2483,31 @@ export interface components {
             updated: number;
             /** Total */
             total: number;
+            /**
+             * Faqs Created
+             * @default 0
+             */
+            faqs_created: number;
+            /**
+             * Faqs Updated
+             * @default 0
+             */
+            faqs_updated: number;
+        };
+        /** KnowledgeCardIn */
+        KnowledgeCardIn: {
+            /** Code */
+            code: string;
+            /** Title */
+            title: string;
+            /** Trigger Words */
+            trigger_words: string[];
+            content: components["schemas"]["KnowledgeCardContentOut"];
+            /**
+             * Active
+             * @default true
+             */
+            active: boolean;
         };
         /** KnowledgeCardOut */
         KnowledgeCardOut: {
@@ -2442,6 +2523,87 @@ export interface components {
             /** Trigger Words */
             trigger_words: string[];
             content: components["schemas"]["KnowledgeCardContentOut"];
+            /**
+             * Active
+             * @default true
+             */
+            active: boolean;
+            /** Related Faqs */
+            related_faqs?: components["schemas"]["KnowledgeFaqLinkOut"][];
+        };
+        /** KnowledgeFaqIn */
+        KnowledgeFaqIn: {
+            /** Code */
+            code: string;
+            /** Category */
+            category: string;
+            /** Question */
+            question: string;
+            /** Answer */
+            answer: string;
+            /**
+             * Source
+             * @default
+             */
+            source: string;
+            /**
+             * Demo Notice
+             * @default
+             */
+            demo_notice: string;
+            /**
+             * Active
+             * @default true
+             */
+            active: boolean;
+        };
+        /** KnowledgeFaqLinkOut */
+        KnowledgeFaqLinkOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Code */
+            code: string;
+            /** Question */
+            question: string;
+            /**
+             * Active
+             * @default true
+             */
+            active: boolean;
+        };
+        /** KnowledgeFaqOut */
+        KnowledgeFaqOut: {
+            /** Code */
+            code: string;
+            /** Category */
+            category: string;
+            /** Question */
+            question: string;
+            /** Answer */
+            answer: string;
+            /**
+             * Source
+             * @default
+             */
+            source: string;
+            /**
+             * Demo Notice
+             * @default
+             */
+            demo_notice: string;
+            /**
+             * Active
+             * @default true
+             */
+            active: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
         };
         /** LabelCount */
         LabelCount: {
@@ -5532,6 +5694,7 @@ export interface operations {
     list_cards_api_knowledge_cards_get: {
         parameters: {
             query?: {
+                include_inactive?: boolean;
                 project_id?: string | null;
             };
             header?: never;
@@ -5547,6 +5710,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["KnowledgeCardOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_card_api_knowledge_cards_post: {
+        parameters: {
+            query?: {
+                project_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KnowledgeCardIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeCardOut"];
                 };
             };
             /** @description Validation Error */
@@ -5582,6 +5780,180 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["KnowledgeCardImportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_card_api_knowledge_cards__card_id__put: {
+        parameters: {
+            query?: {
+                project_id?: string | null;
+            };
+            header?: never;
+            path: {
+                card_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KnowledgeCardIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeCardOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_faqs_api_knowledge_faqs_get: {
+        parameters: {
+            query?: {
+                include_inactive?: boolean;
+                project_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeFaqOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_faq_api_knowledge_faqs_post: {
+        parameters: {
+            query?: {
+                project_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KnowledgeFaqIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeFaqOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_faq_api_knowledge_faqs__faq_id__get: {
+        parameters: {
+            query?: {
+                project_id?: string | null;
+            };
+            header?: never;
+            path: {
+                faq_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeFaqOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_faq_api_knowledge_faqs__faq_id__put: {
+        parameters: {
+            query?: {
+                project_id?: string | null;
+            };
+            header?: never;
+            path: {
+                faq_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KnowledgeFaqIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeFaqOut"];
                 };
             };
             /** @description Validation Error */

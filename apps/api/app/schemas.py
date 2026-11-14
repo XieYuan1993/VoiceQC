@@ -203,6 +203,36 @@ class KnowledgeCardContentOut(BaseModel):
     related_questions: str
     source: str
     demo_notice: str
+    related_faq_codes: list[str] = Field(default_factory=list)
+
+
+class KnowledgeFaqLinkOut(BaseModel):
+    id: uuid.UUID
+    code: str
+    question: str
+    active: bool = True
+
+
+class KnowledgeFaqIn(BaseModel):
+    code: str = Field(pattern=r"^F\d{2,4}$")
+    category: str = Field(max_length=200)
+    question: str = Field(min_length=1, max_length=2000)
+    answer: str = Field(min_length=1, max_length=20000)
+    source: str = Field(default="", max_length=2000)
+    demo_notice: str = Field(default="", max_length=2000)
+    active: bool = True
+
+
+class KnowledgeFaqOut(KnowledgeFaqIn):
+    id: uuid.UUID
+
+
+class KnowledgeCardIn(BaseModel):
+    code: str = Field(pattern=r"^K\d{2,4}$")
+    title: str = Field(min_length=1, max_length=1000)
+    trigger_words: list[str] = Field(min_length=1, max_length=50)
+    content: KnowledgeCardContentOut
+    active: bool = True
 
 
 class KnowledgeCardOut(BaseModel):
@@ -211,6 +241,8 @@ class KnowledgeCardOut(BaseModel):
     title: str
     trigger_words: list[str]
     content: KnowledgeCardContentOut
+    active: bool = True
+    related_faqs: list[KnowledgeFaqLinkOut] = Field(default_factory=list)
 
 
 class KnowledgeCardHitOut(BaseModel):
@@ -229,6 +261,8 @@ class KnowledgeCardImportOut(BaseModel):
     created: int
     updated: int
     total: int
+    faqs_created: int = 0
+    faqs_updated: int = 0
 
 
 class TranscriptOut(BaseModel):
