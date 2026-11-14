@@ -41,6 +41,19 @@ export interface ApiOptions {
   };
 }
 
+function resolveApiPath(path: string, params: ApiOptions["params"]): string {
+  let url = path;
+  for (const [key, value] of Object.entries(params?.path ?? {})) {
+    url = url.replace(`{${key}}`, encodeURIComponent(value));
+  }
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params?.query ?? {})) {
+    if (value != null) query.set(key, String(value));
+  }
+  if (query.size) url += `${url.includes("?") ? "&" : "?"}${query.toString()}`;
+  return url;
+}
+
 export async function apiCall<P extends keyof paths, M extends keyof paths[P] & string>(
   path: P,
   method: M,
@@ -51,21 +64,7 @@ export async function apiCall<P extends keyof paths, M extends keyof paths[P] & 
   };
   if (opts.cookieHeader) headers["Cookie"] = opts.cookieHeader;
 
-  let url = String(path);
-  if (opts.params?.path) {
-    for (const [key, value] of Object.entries(opts.params.path)) {
-      url = url.replace(`{${key}}`, encodeURIComponent(value));
-    }
-  }
-  if (opts.params?.query) {
-    const qs = new URLSearchParams();
-    for (const [k, v] of Object.entries(opts.params.query)) {
-      if (v == null) continue;
-      qs.set(k, String(v));
-    }
-    const s = qs.toString();
-    if (s) url += `?${s}`;
-  }
+  const url = resolveApiPath(String(path), opts.params);
 
   const res = await fetch(`${API_URL}${url}`, {
     method: method.toUpperCase(),
@@ -103,7 +102,7 @@ export async function apiJson<T>(
   };
   if (opts.cookieHeader) headers["Cookie"] = opts.cookieHeader;
 
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetch(`${API_URL}${resolveApiPath(path, opts.params)}`, {
     method: method.toUpperCase(),
     headers,
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,

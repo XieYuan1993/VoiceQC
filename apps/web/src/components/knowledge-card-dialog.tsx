@@ -3,7 +3,7 @@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { KnowledgeCard } from "@/lib/types";
 import * as React from "react";
-import { apiJson } from "@/lib/api";
+import { ApiError, apiJson } from "@/lib/api";
 import { ArrowLeft } from "lucide-react";
 
 export function KnowledgeCardDialog({ card, projectId, onClose }: { card: KnowledgeCard | null; projectId: string; onClose: () => void }) {
@@ -15,7 +15,10 @@ export function KnowledgeCardDialog({ card, projectId, onClose }: { card: Knowle
     setFaq(null); setError("");
     if (!faqId || !card) return;
     const controller = new AbortController();
-    apiJson<NonNullable<typeof faq>>(`/api/knowledge-faqs/${faqId}`, "get", { params: { query: { project_id: projectId } }, signal: controller.signal }).then(setFaq).catch(() => { if (!controller.signal.aborted) setError("無法載入問題，請稍後重試。"); });
+    apiJson<NonNullable<typeof faq>>(`/api/knowledge-faqs/${faqId}`, "get", { params: { query: { project_id: projectId } }, signal: controller.signal }).then(setFaq).catch((err: unknown) => {
+      if (controller.signal.aborted) return;
+      setError(err instanceof ApiError && err.status === 404 ? "此問題不存在於目前專案，或已停用（HTTP 404）。" : err instanceof ApiError && (err.status === 401 || err.status === 403) ? "登入已失效或沒有讀取此問題的權限，請重新登入。" : `無法載入問題${err instanceof ApiError ? `（HTTP ${err.status}）` : "，請檢查網絡連線"}。`);
+    });
     return () => controller.abort();
   }, [faqId, projectId, card]);
   return (
