@@ -26,7 +26,7 @@ export function KnowledgeCardDialog({ card, projectId, onClose }: { card: Knowle
       {card && (
         <DialogContent className="max-w-2xl" aria-labelledby="knowledge-card-title" aria-describedby="knowledge-card-notice">
           <DialogHeader>
-            <span className="text-xs font-medium text-primary">{card.code} · Knowledge card</span>
+            <span className="text-xs font-medium text-amber-800 dark:text-amber-300">{card.code} · Knowledge card</span>
             <DialogTitle id="knowledge-card-title" className="break-words text-lg">{card.title}</DialogTitle>
             <DialogDescription id="knowledge-card-notice">{card.content.demo_notice}</DialogDescription>
           </DialogHeader>

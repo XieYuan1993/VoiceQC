@@ -3,7 +3,6 @@
 import {
   ArrowLeft,
   AudioLines,
-  BookOpen,
   ChevronDown,
   Clock,
   Download,
@@ -16,6 +15,8 @@ import * as React from "react";
 
 import { StatusBadge } from "@/components/status-badge";
 import { KnowledgeCardDialog } from "@/components/knowledge-card-dialog";
+import { knowledgeTriggerRanges } from "@/lib/knowledge-trigger-highlights";
+import { TranscriptKnowledgeHints } from "./transcript-knowledge-hints";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -159,16 +160,27 @@ function SegmentBubble({
   onSeek,
   flash,
   innerRef,
+  triggerTerms = [],
 }: {
   segment: TranscriptSegment;
   onSeek: (ms: number) => void;
   flash?: boolean;
   innerRef?: (el: HTMLButtonElement | null) => void;
+  triggerTerms?: string[];
 }) {
   const role = segment.channel_role;
   const isBroker = role === "broker";
   const isCustomer = role === "customer";
   const mixed = !isBroker && !isCustomer;
+  const ranges = knowledgeTriggerRanges(segment.text, triggerTerms);
+  const highlighted: React.ReactNode[] = [];
+  let cursor = 0;
+  for (const [start, end] of ranges) {
+    highlighted.push(segment.text.slice(cursor, start));
+    highlighted.push(<mark key={start} className="rounded-sm bg-amber-200 px-0.5 font-semibold text-amber-950 dark:bg-amber-400/30 dark:text-amber-100">{segment.text.slice(start, end)}</mark>);
+    cursor = end;
+  }
+  highlighted.push(segment.text.slice(cursor));
 
   return (
     <div className={cn("flex", isBroker && "justify-start", isCustomer && "justify-end")}>
@@ -196,7 +208,7 @@ function SegmentBubble({
             </Badge>
           )}
         </span>
-        <span className="block whitespace-pre-wrap">{segment.text}</span>
+        <span className="block whitespace-pre-wrap">{highlighted}</span>
       </button>
     </div>
   );
@@ -697,6 +709,7 @@ export function RecordingDetailView({
                       <div key={i} className="space-y-1">
                       <SegmentBubble
                         segment={s}
+                        triggerTerms={(transcript.knowledge_cards ?? []).flatMap((match) => match.hits.filter((hit) => hit.segment_index === i).flatMap((hit) => hit.matched_terms))}
                         onSeek={seekTo}
                         flash={flashIdx === i}
                         innerRef={(el) => {
@@ -704,13 +717,8 @@ export function RecordingDetailView({
                           else segmentRefs.current.delete(i);
                         }}
                       />
-                      <div className={cn("flex flex-wrap gap-1", s.channel_role === "customer" && "justify-end")}>
-                        {(transcript.knowledge_cards ?? []).filter((match) => match.hits.some((hit) => hit.segment_index === i)).map((match) => (
-                          <button type="button" key={match.card.id} className="max-w-xl rounded-md border border-primary/25 bg-primary/5 p-3 text-left text-sm hover:bg-primary/10" onClick={() => setSelectedKnowledgeCard(match.card)}>
-                            <span className="flex items-start gap-2 font-medium text-primary"><BookOpen className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />知識卡片 · {match.card.code} · {match.card.title}</span>
-                            {match.card.content.suggested_reply && <span className="mt-2 block line-clamp-2 break-words"><span className="text-muted-foreground">建議回覆：</span>{match.card.content.suggested_reply}</span>}
-                          </button>
-                        ))}
+                      <div className={cn("flex", s.channel_role === "customer" && "justify-end")}>
+                        <TranscriptKnowledgeHints matches={(transcript.knowledge_cards ?? []).filter((match) => match.hits.some((hit) => hit.segment_index === i))} onSelect={setSelectedKnowledgeCard} />
                       </div>
                       </div>
                     ))}

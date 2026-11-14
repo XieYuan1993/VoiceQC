@@ -44,9 +44,12 @@ Matching happens when the completed transcript is read, so imported or updated
 cards also work for old recordings after refreshing the page. This application
 uses batch ASR; this is not a live microphone/streaming transcription feature.
 
-The recording page shows inline assistance beneath each matching transcript
-turn: card title and a short suggested-reply preview. Clicking opens the full
-card; linked FAQ questions open their full answer in the same dialog, with a
+The recording page highlights trigger text in amber and shows compact inline
+assistance beneath each matching transcript turn. A single card has a one-line
+entry; multiple cards share a collapsed count and expandable chooser instead
+of displaying full previews. Amber distinguishes assistance from green customer
+bubbles. Clicking opens the full card including its suggested reply; linked
+FAQ questions open their full answer in the same dialog, with a
 back action to return to the card. There is no aggregate list above the
 transcript and no automatic modal interruption during playback.
 
