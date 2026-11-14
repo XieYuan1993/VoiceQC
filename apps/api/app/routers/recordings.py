@@ -27,6 +27,7 @@ from voiceqa_shared.audit import log_audit
 from voiceqa_shared.db_models import (
     Broker,
     Evaluation,
+    KnowledgeCard,
     Recording,
     Transcript,
     TranscriptSegment,
@@ -34,6 +35,7 @@ from voiceqa_shared.db_models import (
     User,
     UserBrokerCode,
 )
+from voiceqa_shared.knowledge_cards import match_knowledge_cards
 
 from app import queue
 from app.db import get_session
@@ -47,6 +49,7 @@ from app.permissions import (
     has_perm,
     require,
 )
+from app.routers.knowledge_cards import card_dict
 from app.schemas import (
     BulkRerunOut,
     RecordingDetail,
@@ -581,6 +584,13 @@ async def get_transcript(
         .scalars()
         .all()
     )
+    cards = (await session.execute(select(KnowledgeCard).where(
+        KnowledgeCard.project_id == rec.project_id, KnowledgeCard.active.is_(True),
+    ).order_by(KnowledgeCard.code))).scalars().all()
+    card_matches = match_knowledge_cards(
+        [card_dict(card) for card in cards],
+        [{"text": segment.text, "start_ms": segment.start_ms, "end_ms": segment.end_ms} for segment in segments],
+    )
     log_audit(
         session,
         action="transcript.view",
@@ -601,6 +611,7 @@ async def get_transcript(
         else None,
         full_text=transcript.full_text,
         audio_reviews=transcript.audio_reviews,
+        knowledge_cards=card_matches,
         segments=[
             SegmentOut(
                 channel_role=s.channel_role,

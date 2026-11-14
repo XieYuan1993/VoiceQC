@@ -27,6 +27,7 @@ from app.routers import (
     health,
     insights,
     kb,
+    knowledge_cards,
     me,
     projects,
     recon,
@@ -84,6 +85,7 @@ app.include_router(checklist.router)
 app.include_router(evaluations.router)
 app.include_router(insights.router)
 app.include_router(kb.router)
+app.include_router(knowledge_cards.router)
 app.include_router(transactions.router)
 app.include_router(recon.router)
 app.include_router(admin_sso.router)

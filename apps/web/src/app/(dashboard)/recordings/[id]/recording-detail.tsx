@@ -3,6 +3,7 @@
 import {
   ArrowLeft,
   AudioLines,
+  BookOpen,
   ChevronDown,
   Clock,
   Download,
@@ -14,6 +15,7 @@ import Link from "next/link";
 import * as React from "react";
 
 import { StatusBadge } from "@/components/status-badge";
+import { KnowledgeCardDialog } from "@/components/knowledge-card-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,10 +27,11 @@ import {
 } from "@/components/ui/card";
 import { API_URL, ApiError, apiCall, getApiErrorMessage } from "@/lib/api";
 import { formatBytes, formatDateTime, formatDuration, formatMs } from "@/lib/format";
-import type { RecordingDetail, Transcript, TranscriptSegment } from "@/lib/types";
+import type { KnowledgeCard, RecordingDetail, Transcript, TranscriptSegment } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 import { EvaluationPanel } from "./evaluation-panel";
+import { TranscriptKnowledgeCards } from "./transcript-knowledge-cards";
 
 const POLL_MS = 5000;
 // Statuses the pipeline moves through on its own — poll while in one.
@@ -222,6 +225,9 @@ export function RecordingDetailView({
   const [actionError, setActionError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
   const [flashIdx, setFlashIdx] = React.useState<number | null>(null);
+  const [selectedKnowledgeCard, setSelectedKnowledgeCard] = React.useState<KnowledgeCard | null>(null);
+  const [currentMs, setCurrentMs] = React.useState(0);
+  const [playing, setPlaying] = React.useState(false);
 
   const recRef = React.useRef<RecordingDetail | null>(null);
   const audioRef = React.useRef<HTMLAudioElement>(null);
@@ -270,7 +276,10 @@ export function RecordingDetailView({
     setTranscriptOpen(false);
     setShowRaw(false);
     pendingEvidenceIdx.current = null;
-  }, [recordingId]);
+    setSelectedKnowledgeCard(null);
+    setCurrentMs(0);
+    setPlaying(false);
+  }, [recordingId, projectId]);
 
   // Light polling while the pipeline works on this recording.
   const status = rec?.status;
@@ -557,6 +566,10 @@ export function RecordingDetailView({
               preload="metadata"
               src={`${API_URL}/api/recordings/${recordingId}/audio?project_id=${encodeURIComponent(projectId)}`}
               className="w-full"
+              onTimeUpdate={(event) => setCurrentMs(Math.round(event.currentTarget.currentTime * 1000))}
+              onPlay={() => { setPlaying(true); if (transcript?.knowledge_cards?.length) setTranscriptOpen(true); }}
+              onPause={() => setPlaying(false)}
+              onEnded={() => setPlaying(false)}
             />
           </CardContent>
         </Card>
@@ -641,6 +654,15 @@ export function RecordingDetailView({
               </p>
             ) : (
               <div className="space-y-4">
+                <TranscriptKnowledgeCards
+                  key={`${projectId}:${recordingId}`}
+                  matches={transcript.knowledge_cards ?? []}
+                  currentMs={currentMs}
+                  playing={playing}
+                  dialogOpen={selectedKnowledgeCard !== null}
+                  onSelect={setSelectedKnowledgeCard}
+                  onSeek={seekTo}
+                />
                 {transcript.audio_reviews && transcript.audio_reviews.length > 0 && (
                   <section className="space-y-3 border-b pb-4">
                     <h3 className="text-sm font-semibold">Audio review</h3>
@@ -672,8 +694,8 @@ export function RecordingDetailView({
                 ) : (
                   <div className="max-h-[36rem] space-y-2 overflow-y-auto pr-1">
                     {transcript.segments.map((s, i) => (
+                      <div key={i} className="space-y-1">
                       <SegmentBubble
-                        key={i}
                         segment={s}
                         onSeek={seekTo}
                         flash={flashIdx === i}
@@ -682,6 +704,14 @@ export function RecordingDetailView({
                           else segmentRefs.current.delete(i);
                         }}
                       />
+                      <div className={cn("flex flex-wrap gap-1", s.channel_role === "customer" && "justify-end")}>
+                        {(transcript.knowledge_cards ?? []).filter((match) => match.hits.some((hit) => hit.segment_index === i)).map((match) => (
+                          <Button key={match.card.id} variant="ghost" size="sm" className="h-7 max-w-full text-xs text-primary" onClick={() => setSelectedKnowledgeCard(match.card)} title={match.card.title}>
+                            <BookOpen className="mr-1 h-3 w-3 shrink-0" aria-hidden />{match.card.code}
+                          </Button>
+                        ))}
+                      </div>
+                      </div>
                     ))}
                   </div>
                 )}
@@ -690,6 +720,7 @@ export function RecordingDetailView({
           </CardContent>
         )}
       </Card>
+      <KnowledgeCardDialog card={selectedKnowledgeCard} onClose={() => setSelectedKnowledgeCard(null)} />
     </div>
   );
 }

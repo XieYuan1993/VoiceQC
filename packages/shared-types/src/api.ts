@@ -909,6 +909,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/knowledge-cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Cards */
+        get: operations["list_cards_api_knowledge_cards_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/knowledge-cards/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Cards */
+        post: operations["import_cards_api_knowledge_cards_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/transactions": {
         parameters: {
             query?: never;
@@ -1723,6 +1757,11 @@ export interface components {
              */
             source_config_id: string;
         };
+        /** Body_import_cards_api_knowledge_cards_import_post */
+        Body_import_cards_api_knowledge_cards_import_post: {
+            /** File */
+            file: string;
+        };
         /** Body_import_csv_api_terms_import_csv_post */
         Body_import_csv_api_terms_import_csv_post: {
             /** File */
@@ -2351,6 +2390,58 @@ export interface components {
         KbRetrieveOut: {
             /** Hits */
             hits: components["schemas"]["KbRetrievalHit"][];
+        };
+        /** KnowledgeCardContentOut */
+        KnowledgeCardContentOut: {
+            /** Key Points */
+            key_points: string;
+            /** Procedure */
+            procedure: string;
+            /** Suggested Reply */
+            suggested_reply: string;
+            /** Related Products */
+            related_products: string;
+            /** Related Questions */
+            related_questions: string;
+            /** Source */
+            source: string;
+            /** Demo Notice */
+            demo_notice: string;
+        };
+        /** KnowledgeCardHitOut */
+        KnowledgeCardHitOut: {
+            /** Segment Index */
+            segment_index: number;
+            /** Start Ms */
+            start_ms: number;
+            /** End Ms */
+            end_ms: number;
+            /** Matched Terms */
+            matched_terms: string[];
+        };
+        /** KnowledgeCardImportOut */
+        KnowledgeCardImportOut: {
+            /** Created */
+            created: number;
+            /** Updated */
+            updated: number;
+            /** Total */
+            total: number;
+        };
+        /** KnowledgeCardOut */
+        KnowledgeCardOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Code */
+            code: string;
+            /** Title */
+            title: string;
+            /** Trigger Words */
+            trigger_words: string[];
+            content: components["schemas"]["KnowledgeCardContentOut"];
         };
         /** LabelCount */
         LabelCount: {
@@ -3126,6 +3217,12 @@ export interface components {
             /** Evidence Quote */
             evidence_quote: string | null;
         };
+        /** TranscriptKnowledgeCardOut */
+        TranscriptKnowledgeCardOut: {
+            card: components["schemas"]["KnowledgeCardOut"];
+            /** Hits */
+            hits: components["schemas"]["KnowledgeCardHitOut"][];
+        };
         /** TranscriptOut */
         TranscriptOut: {
             /**
@@ -3145,6 +3242,8 @@ export interface components {
             segments: components["schemas"]["SegmentOut"][];
             /** Audio Reviews */
             audio_reviews?: components["schemas"]["AudioReviewOut"][] | null;
+            /** Knowledge Cards */
+            knowledge_cards?: components["schemas"]["TranscriptKnowledgeCardOut"][];
         };
         /** TrendPoint */
         TrendPoint: {
@@ -5417,6 +5516,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["KbDocumentOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_cards_api_knowledge_cards_get: {
+        parameters: {
+            query?: {
+                project_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeCardOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_cards_api_knowledge_cards_import_post: {
+        parameters: {
+            query?: {
+                project_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_import_cards_api_knowledge_cards_import_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeCardImportOut"];
                 };
             };
             /** @description Validation Error */

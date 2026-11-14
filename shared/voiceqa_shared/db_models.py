@@ -438,6 +438,25 @@ class ChecklistItem(Base):
     )
 
 
+class KnowledgeCard(Base):
+    __tablename__ = "knowledge_cards"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    code: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    trigger_words: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    content: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    created_at: Mapped[datetime] = _now()
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("project_id", "code", name="uq_knowledge_cards_project_code"),
+        Index("ix_knowledge_cards_project_id", "project_id"),
+    )
+
+
 class KbDocument(Base):
     """A knowledge-base document (policy / product reference) for a project.
     Chunked + embedded by the worker so calls can be checked for answer

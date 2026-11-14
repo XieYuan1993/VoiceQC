@@ -195,6 +195,42 @@ class AudioReviewOut(BaseModel):
     reason: str
 
 
+class KnowledgeCardContentOut(BaseModel):
+    key_points: str
+    procedure: str
+    suggested_reply: str
+    related_products: str
+    related_questions: str
+    source: str
+    demo_notice: str
+
+
+class KnowledgeCardOut(BaseModel):
+    id: uuid.UUID
+    code: str
+    title: str
+    trigger_words: list[str]
+    content: KnowledgeCardContentOut
+
+
+class KnowledgeCardHitOut(BaseModel):
+    segment_index: int
+    start_ms: int
+    end_ms: int
+    matched_terms: list[str]
+
+
+class TranscriptKnowledgeCardOut(BaseModel):
+    card: KnowledgeCardOut
+    hits: list[KnowledgeCardHitOut]
+
+
+class KnowledgeCardImportOut(BaseModel):
+    created: int
+    updated: int
+    total: int
+
+
 class TranscriptOut(BaseModel):
     recording_id: uuid.UUID
     stt_model: str
@@ -203,6 +239,7 @@ class TranscriptOut(BaseModel):
     full_text: str
     segments: list[SegmentOut]
     audio_reviews: list[AudioReviewOut] | None = None
+    knowledge_cards: list[TranscriptKnowledgeCardOut] = Field(default_factory=list)
 
 
 # --- Phase 1: industry terms + settings -------------------------------------
