@@ -1,5 +1,20 @@
 # Transcript Knowledge Cards
 
+## Supervisor Escalation Demo
+
+Settings > 主管通知 stores a project-scoped supervisor name, email and SMS
+number with independent channel switches. Both switches default off. Enabled
+channels require valid contact details. This uses the existing app-settings
+table; no migration or delivery credentials are needed.
+
+During recorded playback, customer complaint, severe dissatisfaction or
+supervisor-request phrases trigger a confirmation dialog once per recording
+page session. No future transcript text is used before its timestamp. The
+operator may dismiss and reopen the banner. Confirming marks the case notified
+in the current page session only; it does not create a real delivery or survive
+a page reload. The UI explicitly labels the simulation and selected channels.
+This deterministic demo detector is not a live streaming sentiment classifier.
+
 Migration `0020_knowledge_cards` creates a project-scoped knowledge-card table
 and imports the bundled 19 FWD demo cards (92 triggers) into the existing
 `fwd-insurance-demo` project. It does not import cards into other projects or

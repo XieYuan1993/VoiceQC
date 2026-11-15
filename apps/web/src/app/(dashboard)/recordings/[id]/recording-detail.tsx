@@ -17,6 +17,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { KnowledgeCardDialog } from "@/components/knowledge-card-dialog";
 import { knowledgeTriggerRanges } from "@/lib/knowledge-trigger-highlights";
 import { TranscriptKnowledgeHints } from "./transcript-knowledge-hints";
+import { SupervisorAlert } from "./supervisor-alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -674,6 +675,7 @@ export function RecordingDetailView({
               </p>
             ) : (
               <div className="space-y-4">
+                <SupervisorAlert key={`${projectId}:${recordingId}`} projectId={projectId} segments={transcript.segments} currentMs={currentMs} playing={playing} blocked={selectedKnowledgeCard !== null} />
                 {!replayTranscript && transcript.audio_reviews && transcript.audio_reviews.length > 0 && (
                   <section className="space-y-3 border-b pb-4">
                     <h3 className="text-sm font-semibold">Audio review</h3>

@@ -19,7 +19,7 @@ from voiceqa_shared.db_models import AppSetting, User
 
 from app.db import get_session
 from app.deps import ClientMeta, client_meta, resolve_project_id
-from app.permissions import CONFIG_READ, CONFIG_WRITE, require
+from app.permissions import CONFIG_READ, CONFIG_WRITE, TRANSCRIPTS_READ, require
 from app.schemas import SettingOut, SettingPut
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -147,7 +147,30 @@ def _v_correction_replacements(v: Any) -> None:
             raise ValueError(f"rule {index} context must be a string up to 1000 characters")
 
 
+SUPERVISOR_DEFAULT = {"name": "", "email_enabled": False, "email": "", "sms_enabled": False, "phone": ""}
+
+
+def _v_supervisor(v):
+    if not isinstance(v, dict) or set(v) != set(SUPERVISOR_DEFAULT):
+        raise ValueError("invalid supervisor configuration")
+    if any(type(v[key]) is not bool for key in ("email_enabled", "sms_enabled")):
+        raise ValueError("switches must be boolean")
+    if any(not isinstance(v[key], str) or len(v[key]) > 254 for key in ("name", "email", "phone")):
+        raise ValueError("invalid contact details")
+    if v["email_enabled"] and not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", v["email"]):
+        raise ValueError("valid email required")
+    if v["sms_enabled"] and not re.fullmatch(r"\+?[0-9][0-9 ()-]{5,24}", v["phone"]):
+        raise ValueError("valid phone required")
+
+
+@router.get("/supervisor-notification")
+async def supervisor_notification(project_id: uuid.UUID = Depends(resolve_project_id), user: User = Depends(require(TRANSCRIPTS_READ)), session: AsyncSession = Depends(get_session)):
+    row = await session.get(AppSetting, (project_id, "notification.supervisor"))
+    return row.value if row else dict(SUPERVISOR_DEFAULT)
+
+
 VALIDATORS: dict[str, Any] = {
+    "notification.supervisor": _v_supervisor,
     "asr.provider": _v_provider,
     "asr.language_mode": _v_language_mode,
     "asr.output_script": _v_output_script,
