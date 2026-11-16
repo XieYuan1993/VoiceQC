@@ -120,6 +120,15 @@ class SharedSettings(BaseSettings):
     TENCENT_SECRET_ID: SecretStr = SecretStr("")
     TENCENT_SECRET_KEY: SecretStr = SecretStr("")
     TENCENT_ASR_REGION: str = "ap-guangzhou"
+    DYNA_BASE_URL: str = "https://yz.cybotstar.cn"
+    DYNA_ROBOT_KEY: SecretStr = SecretStr("")
+    DYNA_ROBOT_TOKEN: SecretStr = SecretStr("")
+    DYNA_JWT: SecretStr = SecretStr("")
+    DYNA_TENANT: str = ""
+    DYNA_USERNAME: str = ""
+    DYNA_ROBOT_ID: int = 0
+    DYNA_FLOW_UUID: str = ""
+    DYNA_ASR_MODEL: str = "manual_split_16k_yue"
     # Optional public API base URL used to let Tencent ASR download private GCS
     # audio through VoiceQA instead of pulling Google Storage directly.
     ASR_AUDIO_PROXY_BASE_URL: str = ""

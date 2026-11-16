@@ -64,6 +64,7 @@ const INTERNAL_SETTING_KEYS = new Set([
 const SELECT_OPTIONS: Record<string, Array<{ value: string; label: string }>> = {
   "asr.provider": [
     { value: "tencent", label: "Tencent ASR" },
+    { value: "dyna", label: "Dyna ASR + Flow" },
     { value: "qwen", label: "Qwen ASR" },
     { value: "gemini", label: "Gemini audio" },
     { value: "google", label: "Google STT" },

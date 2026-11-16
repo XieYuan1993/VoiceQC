@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from worker.asr.base import BatchASRAdapter
+from worker.asr.dyna_asr import DynaASR
 from worker.asr.gemini_audio import GeminiAudioASR
 from worker.asr.google_batch import GoogleBatchASR
 from worker.asr.qwen_asr import QwenASR
@@ -13,6 +14,7 @@ PROVIDERS = {
     "gemini": GeminiAudioASR,
     "qwen": QwenASR,
     "tencent": TencentASR,
+    "dyna": DynaASR,
 }
 
 

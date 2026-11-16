@@ -521,7 +521,7 @@ def transcribe(
         provider = asr_provider_override or get_setting(
             session, project_id, "asr.provider", "google"
         )
-        adapter = _adapter(provider)
+        adapter = factory.create("dyna", source_uri=rec.gcs_uri_raw, broker_channel=get_setting(session, project_id, "audio.broker_channel", "left"), checkpoint_prefix=f"stt-results/{rec.id}/dyna") if provider == "dyna" else _adapter(provider)
         try:
             if not rec.stt_operation_name:
                 language_mode = rec.language_mode or get_setting(
@@ -646,7 +646,7 @@ def transcribe(
             )
             repaired_turns = parse_repaired_speaker_turns(full_text)
 
-        corrected_turns, correction_changed = correct_project_transcript(
+        corrected_turns, correction_changed = (repaired_turns or display_turns, False) if provider == "dyna" else correct_project_transcript(
             repaired_turns or display_turns,
             session=session,
             project_id=project_id,
@@ -671,7 +671,7 @@ def transcribe(
                 "role": role, "start_ms": start_ms, "end_ms": max(start_ms + 1, end_ms),
                 "text": text_value, "confidence": source.confidence if source else None,
             })
-        _, audio_reviews = review_project_audio(
+        _, audio_reviews = (review_input, []) if provider == "dyna" else review_project_audio(
             review_input, files=files, session=session, project_id=project_id,
         )
 

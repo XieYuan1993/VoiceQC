@@ -20,6 +20,8 @@ import { apiJson, getApiErrorMessage } from "@/lib/api";
 
 const ASR_PROVIDER_OPTIONS = [
   { value: "tencent", label: "Tencent ASR", model: "16k_zh_en" },
+  { value: "dyna", label: "Dyna ASR + Flow · 粵語", model: "manual_split_16k_yue" },
+  { value: "dyna-cmn", label: "Dyna ASR + Flow · 普通話", model: "manual_split_16k" },
   { value: "qwen", label: "Qwen ASR", model: "qwen3-asr-flash" },
   { value: "google", label: "Google STT", model: "chirp_2" },
   { value: "gemini", label: "Gemini audio", model: "gemini-3.5-flash" },
@@ -54,7 +56,7 @@ export function BulkBatchActions({ projectId }: { projectId: string }) {
       const query = new URLSearchParams({ project_id: projectId });
       const result = await apiJson<BulkRerunResult>(`/api/batches/bulk-rerun-stt?${query}`, "post", {
         body: {
-          asr_provider: provider,
+          asr_provider: provider === "dyna-cmn" ? "dyna" : provider,
           asr_model: model ?? null,
           auto_retry_limit: autoRetry ? 2 : 0,
         },

@@ -108,10 +108,10 @@ def _v_recon_transaction_filters(v: Any) -> None:
 
 
 def _v_provider(v: Any) -> None:
-    if v not in ("google", "gemini", "qwen", "tencent"):
+    if v not in ("google", "gemini", "qwen", "tencent", "dyna"):
         raise ValueError(
             "must be 'google' (chirp STT), 'gemini' (multimodal), "
-            "'qwen' (Qwen3-ASR), or 'tencent' (Tencent ASR)"
+            "'qwen' (Qwen3-ASR), 'tencent' (Tencent ASR), or 'dyna' (ASR + Flow)"
         )
 
 
