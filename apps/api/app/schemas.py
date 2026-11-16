@@ -267,6 +267,7 @@ class KnowledgeCardImportOut(BaseModel):
 
 class TranscriptOut(BaseModel):
     recording_id: uuid.UUID
+    transcribed_at: datetime | None = None
     stt_model: str
     language_detected: str | None
     billed_seconds: float | None

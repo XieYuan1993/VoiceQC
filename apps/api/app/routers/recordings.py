@@ -605,6 +605,7 @@ async def get_transcript(
     return TranscriptOut(
         recording_id=rec.id,
         stt_model=transcript.stt_model,
+        transcribed_at=transcript.created_at,
         language_detected=transcript.language_detected,
         billed_seconds=float(transcript.billed_seconds)
         if transcript.billed_seconds is not None

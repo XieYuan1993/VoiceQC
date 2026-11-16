@@ -203,11 +203,6 @@ function SegmentBubble({
         <span className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
           <span className="font-medium">{roleLabel(role)}</span>
           <span className="tabular-nums">{formatMs(segment.start_ms)}</span>
-          {segment.language && (
-            <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
-              {segment.language}
-            </Badge>
-          )}
         </span>
         <span className="block whitespace-pre-wrap">{highlighted}</span>
       </button>
@@ -619,11 +614,7 @@ export function RecordingDetailView({
               <CardTitle className="text-base">Transcript</CardTitle>
               <CardDescription className="mt-1">
                 {transcript
-                  ? `${transcript.language_detected ?? "Transcription complete"}${
-                      transcript.billed_seconds != null
-                        ? ` · ${formatDuration(transcript.billed_seconds)} billed`
-                        : ""
-                    }`
+                  ? `${transcript.transcribed_at ? `${formatDateTime(transcript.transcribed_at)} · ` : ""}Transcribed`
                   : transcriptMissing
                     ? "No transcript available"
                     : "Expand to view the transcription"}
