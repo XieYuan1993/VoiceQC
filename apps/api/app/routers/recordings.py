@@ -24,10 +24,12 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from voiceqa_shared import gcs
 from voiceqa_shared.audit import log_audit
+from voiceqa_shared.crs import uses_crs
 from voiceqa_shared.db_models import (
     Broker,
     Evaluation,
     KnowledgeCard,
+    Project,
     Recording,
     Transcript,
     TranscriptSegment,
@@ -322,12 +324,13 @@ async def reevaluate_recordings(
     """
     extensions = await _scope_extensions(session, user)
     recording_ids = payload.recording_ids if payload is not None else []
+    crs_mode = uses_crs(await session.get(Project, project_id))
     stmt = (
         _apply_scope(select(Recording), extensions)
         .join(UploadBatch, Recording.batch_id == UploadBatch.id)
         .where(
             Recording.project_id == project_id,
-            UploadBatch.processing_mode != "transcription_only",
+            or_(UploadBatch.processing_mode != "transcription_only", crs_mode),
             Recording.status.not_in(("uploaded", "converting", "transcribing", "evaluating")),
         )
     )
@@ -794,7 +797,7 @@ async def reprocess(
         raise HTTPException(status.HTTP_409_CONFLICT, "no normalized audio; reprocess from convert")
     if from_stage == "eval":
         batch = await session.get(UploadBatch, rec.batch_id)
-        if batch is not None and batch.processing_mode == "transcription_only":
+        if batch is not None and batch.processing_mode == "transcription_only" and not uses_crs(await session.get(Project, project_id)):
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
                 "this batch is transcription-only and cannot be evaluated",

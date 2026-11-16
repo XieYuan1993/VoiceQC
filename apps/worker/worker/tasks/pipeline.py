@@ -26,8 +26,10 @@ from opencc import OpenCC
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from voiceqa_shared import gcs
+from voiceqa_shared.crs import uses_crs
 from voiceqa_shared.db_models import (
     IndustryTerm,
+    Project,
     Recording,
     SttUsage,
     Transcript,
@@ -743,7 +745,7 @@ def transcribe(
         batch_id = str(rec.batch_id)
         transcription_only = bool(
             batch is not None and batch.processing_mode == "transcription_only"
-        )
+        ) and not uses_crs(session.get(Project, rec.project_id))
         rec.status = "completed" if transcription_only else "evaluating"
         rec.stt_started_at = None
         rec.error = None

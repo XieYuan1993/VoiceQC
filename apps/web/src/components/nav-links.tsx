@@ -2,6 +2,7 @@
 
 import {
   AudioLines,
+  AlertTriangle,
   BookOpen,
   Inbox,
   Layers,
@@ -30,6 +31,7 @@ interface NavItem {
 const WORKSPACE: ReadonlyArray<NavItem> = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/recordings", label: "Recordings", icon: AudioLines },
+  { href: "/risks", label: "Risk recordings", icon: AlertTriangle },
   { href: "/review", label: "Review queue", icon: Inbox },
   { href: "/agents", label: "Agent scorecards", icon: Users },
   { href: "/batches", label: "Batches", icon: Layers },

@@ -9,9 +9,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from voiceqa_shared.audit import log_audit
+from voiceqa_shared.crs import uses_crs
 from voiceqa_shared.db_models import (
     Evaluation,
     EvaluationResult,
+    Project,
     Recording,
     TradeInstruction,
     Transcript,
@@ -183,7 +185,7 @@ async def rerun_evaluation(
     """Re-evaluate under the CURRENT criteria/fields config (new run_seq)."""
     rec = await _get_scoped(session, user, recording_id, project_id)
     batch = await session.get(UploadBatch, rec.batch_id)
-    if batch is not None and batch.processing_mode == "transcription_only":
+    if batch is not None and batch.processing_mode == "transcription_only" and not uses_crs(await session.get(Project, project_id)):
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             "this batch is transcription-only and cannot be evaluated",

@@ -21,6 +21,7 @@ from typing import Any
 
 from loguru import logger
 from sqlalchemy import func, select, text
+from voiceqa_shared.crs import catalogue, uses_crs
 from voiceqa_shared.db_models import (
     ChecklistItem,
     EvalCriterion,
@@ -38,6 +39,7 @@ from voiceqa_shared.db_models import (
 from voiceqa_shared.llm_usage import llm_tokens_today_sync, record_llm_usage_sync
 
 from worker.celery_app import app
+from worker.crs import build_crs_request, validate_crs
 from worker.db import SessionLocal, engine, get_setting
 from worker.kb import cosine
 from worker.llm import factory
@@ -917,9 +919,12 @@ def _evaluate_locked(self, recording_id: str) -> None:
         project_id = rec.project_id
         output_script = get_setting(session, project_id, "asr.output_script", "original")
         project = session.get(Project, project_id)
+        crs_mode = uses_crs(project)
         trade_module = (
             bool((project.modules or {}).get("trade_reconciliation")) if project else False
         )
+        if crs_mode:
+            trade_module = False
         eval_context = project.eval_prompt_context if project else None
         transcript = (
             session.execute(select(Transcript).where(Transcript.recording_id == rec.id))
@@ -998,6 +1003,9 @@ def _evaluate_locked(self, recording_id: str) -> None:
             .all()
         )
 
+        if crs_mode:
+            criteria, call_fields, all_fields, checklist = [], [], [], []
+
         run_seq = (
             session.execute(
                 select(Evaluation.run_seq)
@@ -1051,6 +1059,8 @@ def _evaluate_locked(self, recording_id: str) -> None:
             ],
         )
         session.add(evaluation)
+        if crs_mode:
+            evaluation.fields_snapshot = [{"key": "crs", "mode": "crs_classification", "catalogue": catalogue()}]
         rec.updated_at = datetime.now(UTC)
         session.commit()
         evaluation_id = evaluation.id
@@ -1058,7 +1068,7 @@ def _evaluate_locked(self, recording_id: str) -> None:
 
         # Answer-correctness RAG: retrieve the most relevant KB chunks for this
         # call (skipped — and correctness omitted — when the project has no KB).
-        kb_chunks = (
+        kb_chunks = [] if crs_mode else (
             session.execute(select(KbChunk).where(KbChunk.project_id == project_id)).scalars().all()
         )
         kb_context = _retrieve_kb_context(transcript.full_text, kb_chunks) if kb_chunks else None
@@ -1083,6 +1093,8 @@ def _evaluate_locked(self, recording_id: str) -> None:
             has_kb=kb_context is not None,
         )
         trade_prompts: list[str] = []
+        if crs_mode:
+            prompt, schema = build_crs_request(transcript.full_text)
         trade_schema = build_trade_response_schema()
         # Preserve an audited/backfilled recording account across re-evaluation;
         # use transcript inference for newly uploaded recordings without one.
@@ -1135,7 +1147,10 @@ def _evaluate_locked(self, recording_id: str) -> None:
             in_tok += trade_in_tok
             out_tok += trade_out_tok
         trade_parsed = _merge_trade_outputs(trade_outputs, candidates if trade_module else [])
-        parsed = _apply_output_script_tree(parsed, output_script)
+        if crs_mode:
+            parsed = {"call_fields": {"crs": validate_crs(parsed, transcript.full_text)}}
+        else:
+            parsed = _apply_output_script_tree(parsed, output_script)
         trade_parsed = _apply_output_script_tree(trade_parsed, output_script)
     except Exception as e:
         transient = any(
@@ -1253,7 +1268,7 @@ def _evaluate_locked(self, recording_id: str) -> None:
         known_call_keys = {f.key for f in call_fields}
         raw_fields = parsed.get("call_fields") or {}
         evaluation.extracted_call_fields = (
-            {k: v for k, v in raw_fields.items() if k in known_call_keys}
+            {k: v for k, v in raw_fields.items() if k in known_call_keys or (crs_mode and k == "crs")}
             if isinstance(raw_fields, dict)
             else {}
         )

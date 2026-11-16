@@ -17,7 +17,8 @@ import { StatusBadge } from "@/components/status-badge";
 import { KnowledgeCardDialog } from "@/components/knowledge-card-dialog";
 import { knowledgeTriggerRanges } from "@/lib/knowledge-trigger-highlights";
 import { TranscriptKnowledgeHints } from "./transcript-knowledge-hints";
-import { SupervisorAlert } from "./supervisor-alert";
+import { SupervisorAlert, useSupervisorContact } from "./supervisor-alert";
+import { complaintTrigger } from "@/lib/supervisor-notification";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,6 +34,7 @@ import type { KnowledgeCard, RecordingDetail, Transcript, TranscriptSegment } fr
 import { cn } from "@/lib/utils";
 
 import { EvaluationPanel } from "./evaluation-panel";
+import { CrsPanel } from "./crs-panel";
 
 const POLL_MS = 5000;
 // Statuses the pipeline moves through on its own — poll while in one.
@@ -174,11 +176,14 @@ function SegmentBubble({
   const isCustomer = role === "customer";
   const mixed = !isBroker && !isCustomer;
   const ranges = knowledgeTriggerRanges(segment.text, triggerTerms);
+  const riskTerm = isCustomer ? complaintTrigger(segment.text) : null;
   const highlighted: React.ReactNode[] = [];
   let cursor = 0;
-  for (const [start, end] of ranges) {
+  const riskRanges = riskTerm ? knowledgeTriggerRanges(segment.text, [riskTerm]) : [];
+  const allRanges = [...ranges.filter(([start, end]) => !riskRanges.some(([a, b]) => start < b && end > a)), ...riskRanges].sort((a, b) => a[0] - b[0]);
+  for (const [start, end] of allRanges) {
     highlighted.push(segment.text.slice(cursor, start));
-    highlighted.push(<mark key={start} className="rounded-sm bg-amber-200 px-0.5 font-semibold text-amber-950 dark:bg-amber-400/30 dark:text-amber-100">{segment.text.slice(start, end)}</mark>);
+    highlighted.push(<mark key={start} className={cn("rounded-sm px-0.5 font-semibold", riskRanges.some(([a]) => a === start) ? "bg-red-200 text-red-950 dark:bg-red-500/30 dark:text-red-100" : "bg-amber-200 text-amber-950 dark:bg-amber-400/30 dark:text-amber-100")}>{segment.text.slice(start, end)}</mark>);
     cursor = end;
   }
   highlighted.push(segment.text.slice(cursor));
@@ -214,11 +219,13 @@ export function RecordingDetailView({
   recordingId,
   projectId,
   canManage,
+  crsOnly = false,
   canReview,
 }: {
   recordingId: string;
   projectId: string;
   canManage: boolean;
+  crsOnly?: boolean;
   canReview: boolean;
 }) {
   const [rec, setRec] = React.useState<RecordingDetail | null>(null);
@@ -236,6 +243,7 @@ export function RecordingDetailView({
   const [currentMs, setCurrentMs] = React.useState(0);
   const [playing, setPlaying] = React.useState(false);
   const [replayTranscript, setReplayTranscript] = React.useState(false);
+  const supervisor = useSupervisorContact(projectId);
 
   const recRef = React.useRef<RecordingDetail | null>(null);
   const audioRef = React.useRef<HTMLAudioElement>(null);
@@ -590,7 +598,7 @@ export function RecordingDetailView({
         </Card>
       </div>
 
-      {rec.processing_mode !== "transcription_only" && (
+      {!crsOnly && rec.processing_mode !== "transcription_only" && (
         <EvaluationPanel
           recordingId={recordingId}
           projectId={projectId}
@@ -666,7 +674,6 @@ export function RecordingDetailView({
               </p>
             ) : (
               <div className="space-y-4">
-                <SupervisorAlert key={`${projectId}:${recordingId}`} projectId={projectId} segments={transcript.segments} currentMs={currentMs} playing={playing} blocked={selectedKnowledgeCard !== null} />
                 {!replayTranscript && transcript.audio_reviews && transcript.audio_reviews.length > 0 && (
                   <section className="space-y-3 border-b pb-4">
                     <h3 className="text-sm font-semibold">Audio review</h3>
@@ -711,6 +718,9 @@ export function RecordingDetailView({
                         }}
                       />
                       <div className={cn("flex", s.channel_role === "customer" && "justify-end")}>
+                        {s.channel_role === "customer" && complaintTrigger(s.text) && <SupervisorAlert key={`${projectId}:${recordingId}:${i}`} active={s.start_ms <= currentMs} contact={supervisor.contact} error={supervisor.error} />}
+                      </div>
+                      <div className={cn("flex", s.channel_role === "customer" && "justify-end")}>
                         <TranscriptKnowledgeHints matches={(transcript.knowledge_cards ?? []).filter((match) => match.hits.some((hit) => hit.segment_index === i))} onSelect={setSelectedKnowledgeCard} />
                       </div>
                       </div>
@@ -723,6 +733,7 @@ export function RecordingDetailView({
         )}
       </Card>
       <KnowledgeCardDialog projectId={projectId} card={selectedKnowledgeCard} onClose={() => setSelectedKnowledgeCard(null)} />
+      {crsOnly && <CrsPanel projectId={projectId} recordingId={recordingId} recordingStatus={rec.status} canRun={canReview} onChanged={() => void loadRecording()} />}
     </div>
   );
 }

@@ -1,0 +1,158 @@
+{
+  "source": "FWD_Demo_经典场景清单 / CRS与知识卡片",
+  "entries": [
+    {
+      "id": 1,
+      "category": "20 Life",
+      "event_detail": "2025 Claims／理賠服務",
+      "content_detail": "202510 Case Progress - Pending items／理賠進度",
+      "example_enquiry": "新保单理赔进度：为何要做调查、何时有结果"
+    },
+    {
+      "id": 2,
+      "category": "20 Life",
+      "event_detail": "2045 Grievance／不滿",
+      "content_detail": "2045105 Procedure/ practice/ policy/ administration",
+      "example_enquiry": "投诉理赔时效及服务，要求主管"
+    },
+    {
+      "id": 3,
+      "category": "20 Life",
+      "event_detail": "2025 Claims／理賠服務",
+      "content_detail": "202515 Settlement Cheque／理賠支票",
+      "example_enquiry": "理赔赔款 FPS 收款屡次失败改发支票"
+    },
+    {
+      "id": 4,
+      "category": "20 Life",
+      "event_detail": "2025 Claims／理賠服務",
+      "content_detail": "202512 Benefit Eligibility",
+      "example_enquiry": "医疗保单自付费是否适用于意外急症"
+    },
+    {
+      "id": 5,
+      "category": "20 Life",
+      "event_detail": "2020 Policy Services／保單服務",
+      "content_detail": "Miscellaneous - Premium Change（表中无编号）",
+      "example_enquiry": "保费上升原因（改缴费频率）"
+    },
+    {
+      "id": 6,
+      "category": "20 Life",
+      "event_detail": "2020 Policy Services／保單服務",
+      "content_detail": "Change - Payment Mode／更改付款方式（表中无编号）",
+      "example_enquiry": "月缴／年缴转换及自动转账"
+    },
+    {
+      "id": 7,
+      "category": "20 Life",
+      "event_detail": "2025 Claims／理賠服務",
+      "content_detail": "Return of Original Receipt (ROR)/ Medical report（新增项，表中无编号）",
+      "example_enquiry": "理赔正本收据是否已收到、截止日期"
+    },
+    {
+      "id": 8,
+      "category": "20 Life",
+      "event_detail": "2020 Policy Services／保單服務",
+      "content_detail": "Change - Address/Tel/E-Mail Address／更改地址/電話號碼/電郵地址（表中无编号）",
+      "example_enquiry": "更改通讯地址（记录未更新）"
+    },
+    {
+      "id": 9,
+      "category": "20 Life",
+      "event_detail": "2025 Claims／理賠服務",
+      "content_detail": "202520 Claims Procedures／理賠程序",
+      "example_enquiry": "身故理赔手续：未成年受益人由监护人签署"
+    },
+    {
+      "id": 10,
+      "category": "20 Life",
+      "event_detail": "2020 Policy Services／保單服務",
+      "content_detail": "Miscellaneous - Policy Coverages（表中无编号）",
+      "example_enquiry": "第三者查询住院保障"
+    },
+    {
+      "id": 11,
+      "category": "20 Life",
+      "event_detail": "2065 POS / Claim - Document Sent Out",
+      "content_detail": "206570 Hospitalization Claim Form／住院賠償申請表",
+      "example_enquiry": "寄送理赔申请表"
+    },
+    {
+      "id": 12,
+      "category": "20 Life",
+      "event_detail": "2020 Policy Services／保單服務",
+      "content_detail": "Payment - Autopay Rejected Reason／自動轉賬被拒原因（表中无编号）",
+      "example_enquiry": "自动转账失效（信用卡已取消）"
+    },
+    {
+      "id": 13,
+      "category": "20 Life",
+      "event_detail": "2020 Policy Services／保單服務",
+      "content_detail": "Payment - Premium Collection／保費繳付（表中无编号）",
+      "example_enquiry": "网上缴费操作（缴费编号）"
+    },
+    {
+      "id": 14,
+      "category": "20 Life",
+      "event_detail": "2020 Policy Services／保單服務",
+      "content_detail": "Miscellaneous - Lapsed Date（表中无编号）",
+      "example_enquiry": "宽限期即将届满"
+    },
+    {
+      "id": 15,
+      "category": "20 Life",
+      "event_detail": "2020 Policy Services／保單服務",
+      "content_detail": "Payment - Payment History／付款記錄（表中无编号）",
+      "example_enquiry": "已缴费仍收催收短讯"
+    },
+    {
+      "id": 16,
+      "category": "20 Life",
+      "event_detail": "2045 Grievance／不滿",
+      "content_detail": "2045101 Poor service of insurance intermediary",
+      "example_enquiry": "投诉理财顾问／业务员"
+    },
+    {
+      "id": 17,
+      "category": "20 Life",
+      "event_detail": "2020 Policy Services／保單服務",
+      "content_detail": "Miscellaneous - Policy Value / Balance（表中无编号）",
+      "example_enquiry": "退保现金价值查询"
+    },
+    {
+      "id": 18,
+      "category": "60 G.I.",
+      "event_detail": "6025 Claims",
+      "content_detail": "602515 Case Progress",
+      "example_enquiry": "App 理赔提交失败，不能重新提交"
+    },
+    {
+      "id": 19,
+      "category": "10 Company",
+      "event_detail": "1010 Company Information／公司資訊",
+      "content_detail": "—",
+      "example_enquiry": "打错热线（应致电另一热线）"
+    },
+    {
+      "id": 20,
+      "category": "20 Life",
+      "event_detail": "2020 Policy Services／保單服務",
+      "content_detail": "Miscellaneous - Policy Benefit/Status／保單權益/狀況（表中无编号）",
+      "example_enquiry": "查询保单是否有效 → 部门不对需转线"
+    }
+  ],
+  "reasons": [
+    "Urge update（TAT 内或外待确认）",
+    "—",
+    "Technical Support issue",
+    "Terms & Condition/ Details",
+    "Amount details/ Breakdown",
+    "Transaction Confirmation",
+    "Submission Notification/ Confirmation",
+    "Procedure",
+    "Explain Reject / Pending Reason",
+    "Urge update (beyond TAT)",
+    "N/A"
+  ]
+}

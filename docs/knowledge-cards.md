@@ -7,13 +7,22 @@ number with independent channel switches. Both switches default off. Enabled
 channels require valid contact details. This uses the existing app-settings
 table; no migration or delivery credentials are needed.
 
-During recorded playback, customer complaint, severe dissatisfaction or
-supervisor-request phrases trigger a confirmation dialog once per recording
-page session. No future transcript text is used before its timestamp. The
-operator may dismiss and reopen the banner. Confirming marks the case notified
-in the current page session only; it does not create a real delivery or survive
-a page reload. The UI explicitly labels the simulation and selected channels.
-This deterministic demo detector is not a live streaming sentiment classifier.
+Customer complaint, severe dissatisfaction or supervisor-request phrases are
+highlighted in red, with a compact red escalation hint beneath that transcript
+turn. During playback the hint automatically marks the supervisor notified
+once its timestamp is reached and an enabled channel is available. There is
+no confirmation dialog. This is a page-session simulation, not a real delivery
+or durable delivery record. Unconfigured channels and configuration failures
+are explicitly shown instead of reporting a successful notification.
+
+Risk recordings (`/risks`) groups matching saved customer transcript turns by
+recording, with risk type filters, filename search, pagination, evidence and
+timestamps. The inbox is computed on read from existing transcripts; no rerun
+or migration is necessary. It respects project and existing broker ownership
+scope. This is a complaint-escalation inbox, not an exhaustive list of all
+LLM evaluation risk flags, and does not claim each entry has been notified.
+Frontend and backend rule parity is regression-tested. The detector remains a
+deterministic demo rule set, not a live streaming sentiment classifier.
 
 Migration `0020_knowledge_cards` creates a project-scoped knowledge-card table
 and imports the bundled 19 FWD demo cards (92 triggers) into the existing

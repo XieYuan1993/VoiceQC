@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from voiceqa_shared import gcs
 from voiceqa_shared.audit import log_audit
+from voiceqa_shared.crs import uses_crs
 from voiceqa_shared.db_models import Project, Recording, UploadBatch, User
 
 from app import queue
@@ -97,7 +98,11 @@ async def create_batch(
     force_transcription_only = bool(
         project is not None and (project.modules or {}).get("transcription_only")
     )
-    processing_mode = "transcription_only" if force_transcription_only else payload.processing_mode
+    processing_mode = (
+        "full" if uses_crs(project)
+        else "transcription_only" if force_transcription_only
+        else payload.processing_mode
+    )
     batch = UploadBatch(
         project_id=project_id,
         name=payload.name,

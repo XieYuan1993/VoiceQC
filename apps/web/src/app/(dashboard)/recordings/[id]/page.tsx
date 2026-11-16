@@ -11,13 +11,14 @@ export default async function RecordingDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const { id: projectId } = await getActiveProject(await cookieHeader());
+  const { id: projectId, project } = await getActiveProject(await cookieHeader());
   const session = await auth();
   const role = session?.user?.role;
   return (
     <RecordingDetailView
       recordingId={id}
       projectId={projectId}
+      crsOnly={project?.slug === "fwd-insurance-demo" || Boolean(project?.modules?.crs_classification)}
       canManage={canManage(role)}
       canReview={canReview(role)}
     />

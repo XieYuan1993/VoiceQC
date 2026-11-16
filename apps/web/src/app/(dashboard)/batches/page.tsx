@@ -56,8 +56,8 @@ export default async function BatchesPage({
   const manage = canManage(session?.user?.role);
 
   const cookie = await cookieHeader();
-  const { id: projectId, modules } = await getActiveProject(cookie);
-  const forceTranscriptionOnly = modules["transcription_only"] === true;
+  const { id: projectId, modules, project } = await getActiveProject(cookie);
+  const forceTranscriptionOnly = modules["transcription_only"] === true && project?.slug !== "fwd-insurance-demo" && !modules["crs_classification"];
 
   let data: BatchList | null = null;
   let error: string | null = null;

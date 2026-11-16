@@ -33,6 +33,7 @@ from app.routers import (
     projects,
     recon,
     recordings,
+    risks,
     terms,
     transactions,
 )
@@ -78,6 +79,7 @@ app.include_router(auth.router)
 app.include_router(asr_audio.router)
 app.include_router(batches.router)
 app.include_router(recordings.router)
+app.include_router(risks.router)
 app.include_router(terms.router)
 app.include_router(config.router)
 app.include_router(criteria.router)
