@@ -177,6 +177,7 @@ class RecordingReevaluateIn(BaseModel):
 
 
 class SegmentOut(BaseModel):
+    id: uuid.UUID | None = None
     channel_role: str
     start_ms: int
     end_ms: int
@@ -268,6 +269,7 @@ class KnowledgeCardImportOut(BaseModel):
 class TranscriptOut(BaseModel):
     recording_id: uuid.UUID
     transcribed_at: datetime | None = None
+    edited_at: datetime | None = None
     stt_model: str
     language_detected: str | None
     billed_seconds: float | None

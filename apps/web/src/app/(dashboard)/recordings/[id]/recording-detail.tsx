@@ -8,6 +8,8 @@ import {
   Download,
   FileText,
   Loader2,
+  Pencil,
+  Tag,
   Sparkles,
 } from "lucide-react";
 import Link from "next/link";
@@ -35,6 +37,7 @@ import { cn } from "@/lib/utils";
 
 import { EvaluationPanel } from "./evaluation-panel";
 import { CrsPanel } from "./crs-panel";
+import { TranscriptEditor } from "./transcript-editor";
 
 const POLL_MS = 5000;
 // Statuses the pipeline moves through on its own — poll while in one.
@@ -85,7 +88,7 @@ function ReprocessMenu({
 }: {
   disabled: boolean;
   pending: boolean;
-  onSelect: (fromStage: "convert" | "stt") => void;
+  onSelect: (fromStage: "convert" | "stt", provider?: string, model?: string) => void;
 }) {
   const [open, setOpen] = React.useState(false);
   const ref = React.useRef<HTMLDivElement>(null);
@@ -145,6 +148,8 @@ function ReprocessMenu({
               Keep converted audio, redo transcription
             </span>
           </button>
+          <div className="my-1 border-t" />
+          {([['manual_split_16k_yue', 'Dyna 粵語'], ['manual_split_16k', 'Dyna 普通話']] as const).map(([model, label]) => <button type="button" role="menuitem" key={model} className="block w-full rounded-sm px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => { setOpen(false); onSelect("stt", "dyna", model); }}>{label}</button>)}
         </div>
       )}
     </div>
@@ -243,6 +248,7 @@ export function RecordingDetailView({
   const [currentMs, setCurrentMs] = React.useState(0);
   const [playing, setPlaying] = React.useState(false);
   const [replayTranscript, setReplayTranscript] = React.useState(false);
+  const [editTarget, setEditTarget] = React.useState<{ segment: TranscriptSegment; hotword: boolean; selection: string } | null>(null);
   const supervisor = useSupervisorContact(projectId);
 
   const recRef = React.useRef<RecordingDetail | null>(null);
@@ -299,6 +305,7 @@ export function RecordingDetailView({
     setShowRaw(false);
     pendingEvidenceIdx.current = null;
     setSelectedKnowledgeCard(null);
+    setEditTarget(null);
     setCurrentMs(0);
     setPlaying(false);
     setReplayTranscript(false);
@@ -392,7 +399,7 @@ export function RecordingDetailView({
     [],
   );
 
-  async function onReprocess(fromStage: "convert" | "stt") {
+  async function onReprocess(fromStage: "convert" | "stt", provider?: string, model?: string) {
     setActionError(null);
     setNotice(null);
     setReprocessing(true);
@@ -400,7 +407,7 @@ export function RecordingDetailView({
       await apiCall("/api/recordings/{recording_id}/reprocess", "post", {
         params: {
           path: { recording_id: recordingId },
-          query: { from_stage: fromStage, project_id: projectId },
+          query: { from_stage: fromStage, project_id: projectId, asr_provider: provider, asr_model: model },
         },
       });
       setNotice(`Reprocess queued (from ${fromStage}).`);
@@ -674,6 +681,7 @@ export function RecordingDetailView({
               </p>
             ) : (
               <div className="space-y-4">
+                {transcript.edited_at && <p className="text-xs text-amber-700 dark:text-amber-300">{formatDateTime(transcript.edited_at)} · 人工修訂。分析結果請以修訂後重新執行的版本為準。</p>}
                 {!replayTranscript && transcript.audio_reviews && transcript.audio_reviews.length > 0 && (
                   <section className="space-y-3 border-b pb-4">
                     <h3 className="text-sm font-semibold">Audio review</h3>
@@ -717,6 +725,10 @@ export function RecordingDetailView({
                           else segmentRefs.current.delete(i);
                         }}
                       />
+                      {canReview && s.id && <div className={cn("flex gap-1", s.channel_role === "customer" && "justify-end")}>
+                        <Button size="icon" variant="ghost" className="h-7 w-7" disabled={busy} title="修改此句轉寫" aria-label="修改此句轉寫" onClick={() => setEditTarget({ segment: s, hotword: false, selection: "" })}><Pencil className="h-3.5 w-3.5" /></Button>
+                        {canManage && <Button size="icon" variant="ghost" className="h-7 w-7" disabled={busy} title="提交熱詞標註" aria-label="提交熱詞標註" onMouseDown={(event) => event.preventDefault()} onClick={() => setEditTarget({ segment: s, hotword: true, selection: window.getSelection()?.toString().trim() ?? "" })}><Tag className="h-3.5 w-3.5" /></Button>}
+                      </div>}
                       <div className={cn("flex", s.channel_role === "customer" && "justify-end")}>
                         {s.channel_role === "customer" && complaintTrigger(s.text) && <SupervisorAlert key={`${projectId}:${recordingId}:${i}`} active={s.start_ms <= currentMs} contact={supervisor.contact} error={supervisor.error} />}
                       </div>
@@ -733,7 +745,8 @@ export function RecordingDetailView({
         )}
       </Card>
       <KnowledgeCardDialog projectId={projectId} card={selectedKnowledgeCard} onClose={() => setSelectedKnowledgeCard(null)} />
-      {crsOnly && <CrsPanel projectId={projectId} recordingId={recordingId} recordingStatus={rec.status} canRun={canReview} onChanged={() => void loadRecording()} />}
+      {editTarget && <TranscriptEditor key={`${editTarget.segment.id}:${editTarget.hotword}`} projectId={projectId} recordingId={recordingId} {...editTarget} canTerms={canManage} onClose={() => setEditTarget(null)} onSaved={async (changed, hotword) => { await loadTranscript(); setNotice(hotword ? "已提交項目熱詞標註。Dyna 平台詞庫需另行同步。" : changed ? "轉寫已儲存，請重新執行 CRS／evaluation。" : "文字沒有變更。"); }} />}
+      {crsOnly && <CrsPanel projectId={projectId} recordingId={recordingId} recordingStatus={rec.status} canRun={canReview} transcriptEditedAt={transcript?.edited_at} onChanged={() => void loadRecording()} />}
     </div>
   );
 }

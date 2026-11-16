@@ -36,6 +36,7 @@ from app.routers import (
     risks,
     terms,
     transactions,
+    transcript_edits,
 )
 from app.settings import settings
 
@@ -79,6 +80,7 @@ app.include_router(auth.router)
 app.include_router(asr_audio.router)
 app.include_router(batches.router)
 app.include_router(recordings.router)
+app.include_router(transcript_edits.router)
 app.include_router(risks.router)
 app.include_router(terms.router)
 app.include_router(config.router)

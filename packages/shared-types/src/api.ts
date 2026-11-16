@@ -504,6 +504,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/recordings/{recording_id}/transcript/segments/{segment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Edit Segment */
+        patch: operations["edit_segment_api_recordings__recording_id__transcript_segments__segment_id__patch"];
+        trace?: never;
+    };
     "/api/risks": {
         parameters: {
             query?: never;
@@ -3150,6 +3167,8 @@ export interface components {
         };
         /** SegmentOut */
         SegmentOut: {
+            /** Id */
+            id?: string | null;
             /** Channel Role */
             channel_role: string;
             /** Start Ms */
@@ -3413,6 +3432,34 @@ export interface components {
             /** Evidence Quote */
             evidence_quote: string | null;
         };
+        /** TranscriptEditIn */
+        TranscriptEditIn: {
+            /** Expected Text */
+            expected_text: string;
+            /** Text */
+            text: string;
+            /**
+             * Wrong
+             * @default
+             */
+            wrong: string;
+            /**
+             * Correct
+             * @default
+             */
+            correct: string;
+            /**
+             * Category
+             * @default jargon
+             * @enum {string}
+             */
+            category: "jargon" | "person" | "other";
+            /**
+             * Context
+             * @default
+             */
+            context: string;
+        };
         /** TranscriptKnowledgeCardOut */
         TranscriptKnowledgeCardOut: {
             card: components["schemas"]["KnowledgeCardOut"];
@@ -3428,6 +3475,8 @@ export interface components {
             recording_id: string;
             /** Transcribed At */
             transcribed_at?: string | null;
+            /** Edited At */
+            edited_at?: string | null;
             /** Stt Model */
             stt_model: string;
             /** Language Detected */
@@ -4562,6 +4611,8 @@ export interface operations {
         parameters: {
             query?: {
                 from_stage?: string;
+                asr_provider?: string | null;
+                asr_model?: string | null;
                 project_id?: string | null;
             };
             header?: never;
@@ -4579,6 +4630,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RecordingOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edit_segment_api_recordings__recording_id__transcript_segments__segment_id__patch: {
+        parameters: {
+            query?: {
+                project_id?: string | null;
+            };
+            header?: never;
+            path: {
+                recording_id: string;
+                segment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TranscriptEditIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

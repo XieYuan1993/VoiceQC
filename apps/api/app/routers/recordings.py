@@ -26,6 +26,7 @@ from voiceqa_shared import gcs
 from voiceqa_shared.audit import log_audit
 from voiceqa_shared.crs import uses_crs
 from voiceqa_shared.db_models import (
+    AuditLog,
     Broker,
     Evaluation,
     KnowledgeCard,
@@ -594,6 +595,7 @@ async def get_transcript(
         await cards_with_faqs(session, rec.project_id, cards),
         [{"text": segment.text, "start_ms": segment.start_ms, "end_ms": segment.end_ms} for segment in segments],
     )
+    edited_at = (await session.execute(select(func.max(AuditLog.occurred_at)).where(AuditLog.object_type == "transcript", AuditLog.object_id == str(transcript.id), AuditLog.action == "transcript.edit"))).scalar_one_or_none()
     log_audit(
         session,
         action="transcript.view",
@@ -609,6 +611,7 @@ async def get_transcript(
         recording_id=rec.id,
         stt_model=transcript.stt_model,
         transcribed_at=transcript.created_at,
+        edited_at=edited_at,
         language_detected=transcript.language_detected,
         billed_seconds=float(transcript.billed_seconds)
         if transcript.billed_seconds is not None
@@ -618,6 +621,7 @@ async def get_transcript(
         knowledge_cards=card_matches,
         segments=[
             SegmentOut(
+                id=s.id,
                 channel_role=s.channel_role,
                 start_ms=s.start_ms,
                 end_ms=s.end_ms,
@@ -780,17 +784,31 @@ def _reprocess_asr_options(rec: Recording, from_stage: str) -> tuple[str | None,
     return rec.rerun_asr_provider, rec.rerun_asr_model
 
 
+def _single_asr_override(rec, from_stage, provider, model):
+    if provider is None and model is None:
+        return _reprocess_asr_options(rec, from_stage)
+    if from_stage == "eval" or provider != "dyna" or model not in ("manual_split_16k_yue", "manual_split_16k"):
+        raise HTTPException(400, "Choose Dyna Cantonese or Mandarin for transcription rerun")
+    if not rec.gcs_uri_raw or not rec.gcs_uri_broker or not rec.gcs_uri_customer:
+        raise HTTPException(409, "Dyna requires original stereo WAV and normalized role channels")
+    if not rec.original_filename.lower().endswith(".wav"):
+        raise HTTPException(409, "Dyna currently supports original stereo WAV only")
+    return provider, model
+
+
 @router.post("/{recording_id}/reprocess", response_model=RecordingOut)
 async def reprocess(
     recording_id: uuid.UUID,
     from_stage: str = Query(default="convert", pattern="^(convert|stt|eval)$"),
+    asr_provider: str | None = None,
+    asr_model: str | None = None,
     project_id: uuid.UUID = Depends(resolve_project_id),
     user: User = Depends(require(BATCHES_MANAGE)),
     session: AsyncSession = Depends(get_session),
     meta: ClientMeta = Depends(client_meta),
 ) -> RecordingOut:
     rec = await _get_scoped(session, user, recording_id, project_id)
-    asr_provider, asr_model = _reprocess_asr_options(rec, from_stage)
+    asr_provider, asr_model = _single_asr_override(rec, from_stage, asr_provider, asr_model)
     if rec.status in ("converting", "transcribing", "evaluating"):
         raise HTTPException(status.HTTP_409_CONFLICT, f"recording is busy ({rec.status})")
     if from_stage == "stt" and not (rec.gcs_uri_broker or rec.gcs_uri_mono):
@@ -812,6 +830,8 @@ async def reprocess(
     rec.failed_stage = None
     rec.attempts = 0
     if from_stage != "eval":
+        rec.rerun_asr_provider = asr_provider
+        rec.rerun_asr_model = asr_model
         rec.stt_operation_name = None
         rec.stt_started_at = None
     rec.status = {"convert": "uploaded", "stt": "transcribing", "eval": "evaluating"}[from_stage]
