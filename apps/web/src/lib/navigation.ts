@@ -8,5 +8,5 @@ export const menuOptions = [
 
 export function menuVisible(path: string, overrides: Record<string, boolean>): boolean {
   if (path === "/settings") return true;
-  return overrides[path] ?? path !== "/review";
+  return overrides[path] ?? (path !== "/review" && path !== "/agents");
 }
