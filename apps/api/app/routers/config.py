@@ -169,7 +169,27 @@ async def supervisor_notification(project_id: uuid.UUID = Depends(resolve_projec
     return row.value if row else dict(SUPERVISOR_DEFAULT)
 
 
+NAVIGATION_PATHS = {"/dashboard", "/recordings", "/risks", "/review", "/agents", "/batches",
+                    "/evaluator", "/amendments", "/transactions", "/recon", "/admin"}
+
+
+def _v_navigation(value):
+    if not isinstance(value, dict) or not set(value) <= NAVIGATION_PATHS:
+        raise ValueError("invalid menu paths")
+    if any(type(visible) is not bool for visible in value.values()):
+        raise ValueError("menu visibility must be boolean")
+
+
+@router.get("/navigation")
+async def navigation(project_id: uuid.UUID = Depends(resolve_project_id),
+                     user: User = Depends(require(TRANSCRIPTS_READ)),
+                     session: AsyncSession = Depends(get_session)):
+    row = await session.get(AppSetting, (project_id, "ui.navigation"))
+    return row.value if row else {}
+
+
 VALIDATORS: dict[str, Any] = {
+    "ui.navigation": _v_navigation,
     "notification.supervisor": _v_supervisor,
     "asr.provider": _v_provider,
     "asr.language_mode": _v_language_mode,

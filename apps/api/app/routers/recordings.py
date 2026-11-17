@@ -596,6 +596,10 @@ async def get_transcript(
         [{"text": segment.text, "start_ms": segment.start_ms, "end_ms": segment.end_ms} for segment in segments],
     )
     edited_at = (await session.execute(select(func.max(AuditLog.occurred_at)).where(AuditLog.object_type == "transcript", AuditLog.object_id == str(transcript.id), AuditLog.action == "transcript.edit"))).scalar_one_or_none()
+    amendments = (await session.execute(select(AuditLog).where(
+        AuditLog.object_type == "transcript", AuditLog.object_id == str(transcript.id),
+        AuditLog.action == "transcript.edit",
+    ).order_by(AuditLog.occurred_at.desc(), AuditLog.id.desc()))).scalars().all()
     log_audit(
         session,
         action="transcript.view",
@@ -608,6 +612,11 @@ async def get_transcript(
     )
     await session.commit()
     return TranscriptOut(
+        amendments=[{"id": entry.id, "segment_id": str(entry.details["segment_id"]),
+                     "occurred_at": entry.occurred_at, "actor": entry.actor_email,
+                     "before": entry.details["before"], "after": entry.details["after"]}
+                    for entry in amendments if entry.details and
+                    all(key in entry.details for key in ("segment_id", "before", "after"))],
         recording_id=rec.id,
         stt_model=transcript.stt_model,
         transcribed_at=transcript.created_at,

@@ -37,6 +37,7 @@ from app.routers import (
     terms,
     transactions,
     transcript_edits,
+    workspace,
 )
 from app.settings import settings
 
@@ -81,6 +82,7 @@ app.include_router(asr_audio.router)
 app.include_router(batches.router)
 app.include_router(recordings.router)
 app.include_router(transcript_edits.router)
+app.include_router(workspace.router)
 app.include_router(risks.router)
 app.include_router(terms.router)
 app.include_router(config.router)

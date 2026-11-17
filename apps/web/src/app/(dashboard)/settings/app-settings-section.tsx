@@ -55,6 +55,7 @@ const EXECUTION_TYPE_OPTIONS = [
 ];
 
 const INTERNAL_SETTING_KEYS = new Set([
+  "ui.navigation",
   "notification.supervisor",
   "asr.post_correction_provider",
   "asr.post_correction_model",

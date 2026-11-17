@@ -16,14 +16,14 @@ export default async function EvaluatorPage() {
       <div>
         <h1 className="text-2xl font-semibold">Evaluator</h1>
         <p className="text-sm text-muted-foreground">
-          The rubric, extraction fields and industry terms for{" "}
+          The rubric and extraction fields for{" "}
           <span className="font-medium text-foreground">{project?.name ?? "this project"}</span>.
           Generate a starting rubric from a plain-language description.
           {!manage && " Your role has read-only access."}
         </p>
       </div>
 
-      <EvaluatorTabs projectId={projectId} canManage={manage} />
+      <EvaluatorTabs key={projectId} projectId={projectId} canManage={manage} />
     </div>
   );
 }

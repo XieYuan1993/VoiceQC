@@ -10,6 +10,7 @@ import type { Analytics, BatchList, RecordingList } from "@/lib/types";
 
 import { cookieHeader } from "../_data";
 import { InsightsSection } from "./insights-section";
+import { WorkspaceOverview } from "./workspace-overview";
 
 function MetricCard({
   label,
@@ -86,6 +87,8 @@ export default async function DashboardHomePage() {
         <MetricCard label="Evaluated" value={completed ? completed.total : "—"} icon={ListChecks} />
         <MetricCard label="Batches" value={batches ? batches.total : "—"} icon={Layers} />
       </div>
+
+      <WorkspaceOverview projectId={projectId} cookie={cookie} />
 
       {analytics && analytics.analyzed_calls > 0 && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

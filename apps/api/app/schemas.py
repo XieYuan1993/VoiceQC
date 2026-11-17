@@ -266,7 +266,17 @@ class KnowledgeCardImportOut(BaseModel):
     faqs_updated: int = 0
 
 
+class TranscriptAmendmentOut(BaseModel):
+    id: int
+    segment_id: str
+    occurred_at: datetime
+    actor: str | None = None
+    before: str
+    after: str
+
+
 class TranscriptOut(BaseModel):
+    amendments: list[TranscriptAmendmentOut] = Field(default_factory=list)
     recording_id: uuid.UUID
     transcribed_at: datetime | None = None
     edited_at: datetime | None = None

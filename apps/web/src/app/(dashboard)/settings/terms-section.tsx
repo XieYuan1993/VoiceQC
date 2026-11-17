@@ -276,7 +276,7 @@ export function TermsSection({
       <CardHeader>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <CardTitle className="text-base">Industry terms</CardTitle>
+            <CardTitle className="text-base">熱詞管理</CardTitle>
             <CardDescription>
               Glossary that improves transcription accuracy — names, jargon, and their aliases.
             </CardDescription>

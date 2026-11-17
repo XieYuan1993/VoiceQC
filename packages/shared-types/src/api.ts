@@ -521,6 +521,40 @@ export interface paths {
         patch: operations["edit_segment_api_recordings__recording_id__transcript_segments__segment_id__patch"];
         trace?: never;
     };
+    "/api/workspace/amendments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Amendments */
+        get: operations["amendments_api_workspace_amendments_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspace/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Overview */
+        get: operations["overview_api_workspace_overview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/risks": {
         parameters: {
             query?: never;
@@ -600,6 +634,23 @@ export interface paths {
         };
         /** Supervisor Notification */
         get: operations["supervisor_notification_api_settings_supervisor_notification_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/navigation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Navigation */
+        get: operations["navigation_api_settings_navigation_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3432,6 +3483,24 @@ export interface components {
             /** Evidence Quote */
             evidence_quote: string | null;
         };
+        /** TranscriptAmendmentOut */
+        TranscriptAmendmentOut: {
+            /** Id */
+            id: number;
+            /** Segment Id */
+            segment_id: string;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Actor */
+            actor?: string | null;
+            /** Before */
+            before: string;
+            /** After */
+            after: string;
+        };
         /** TranscriptEditIn */
         TranscriptEditIn: {
             /** Expected Text */
@@ -3468,6 +3537,8 @@ export interface components {
         };
         /** TranscriptOut */
         TranscriptOut: {
+            /** Amendments */
+            amendments?: components["schemas"]["TranscriptAmendmentOut"][];
             /**
              * Recording Id
              * Format: uuid
@@ -4681,6 +4752,72 @@ export interface operations {
             };
         };
     };
+    amendments_api_workspace_amendments_get: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number;
+                recording_id?: string | null;
+                q?: string;
+                project_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    overview_api_workspace_overview_get: {
+        parameters: {
+            query?: {
+                project_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_risks_api_risks_get: {
         parameters: {
             query?: {
@@ -4882,6 +5019,37 @@ export interface operations {
         };
     };
     supervisor_notification_api_settings_supervisor_notification_get: {
+        parameters: {
+            query?: {
+                project_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    navigation_api_settings_navigation_get: {
         parameters: {
             query?: {
                 project_id?: string | null;

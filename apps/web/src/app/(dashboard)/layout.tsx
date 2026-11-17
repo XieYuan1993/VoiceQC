@@ -53,7 +53,7 @@ export default async function DashboardLayout({
       </header>
       <div className="flex flex-1">
         <aside className="w-56 shrink-0 border-r px-3 py-4">
-          <NavLinks modules={modules} industry={industry} key={project?.id ?? "none"} />
+          <NavLinks modules={modules} industry={industry} projectId={id} key={project?.id ?? "none"} />
         </aside>
         <main className="flex-1 p-6">{children}</main>
       </div>

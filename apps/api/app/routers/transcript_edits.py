@@ -186,7 +186,8 @@ async def edit_segment(
             actor_email=user.email,
             object_type="transcript",
             object_id=str(transcript.id),
-            details={"segment_id": str(segment.id), "before": old, "after": segment.text},
+            details={"recording_id": str(rec.id), "segment_id": str(segment.id), "start_ms": segment.start_ms,
+                     "before": old, "after": segment.text},
             ip=meta.ip,
             user_agent=meta.user_agent,
         )

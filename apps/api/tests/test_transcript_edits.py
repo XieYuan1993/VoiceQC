@@ -52,7 +52,21 @@ async def test_read_transcript_with_database_integer_segment_id(monkeypatch, edi
             if "FROM transcripts" in sql:
                 return SimpleNamespace(scalar_one_or_none=lambda: transcript)
             if "FROM audit_log" in sql:
-                return SimpleNamespace(scalar_one_or_none=lambda: now if edited else None)
+                if "max(" in sql:
+                    return SimpleNamespace(scalar_one_or_none=lambda: now if edited else None)
+                audits = (
+                    [
+                        SimpleNamespace(
+                            id=1,
+                            occurred_at=now,
+                            actor_email="admin@example.test",
+                            details={"segment_id": "123", "before": "old", "after": "hello"},
+                        )
+                    ]
+                    if edited
+                    else []
+                )
+                return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: audits))
             values = [segment] if "FROM transcript_segments" in sql else []
             return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: values))
 
@@ -69,6 +83,9 @@ async def test_read_transcript_with_database_integer_segment_id(monkeypatch, edi
     assert result.segments[0].id == 123
     assert result.model_dump(mode="json")["segments"][0]["id"] == 123
     assert result.edited_at == (now if edited else None)
+    assert len(result.amendments) == int(edited)
+    if edited:
+        assert result.amendments[0].segment_id == "123"
 
 
 def test_edit_route_expects_integer_segment_id():

@@ -37,6 +37,7 @@ import { cn } from "@/lib/utils";
 
 import { EvaluationPanel } from "./evaluation-panel";
 import { CrsPanel } from "./crs-panel";
+import { TranscriptAmendmentHint } from "@/components/transcript-amendment-hint";
 import { TranscriptEditor } from "./transcript-editor";
 
 const POLL_MS = 5000;
@@ -729,6 +730,9 @@ export function RecordingDetailView({
                         <Button size="icon" variant="ghost" className="h-7 w-7" disabled={busy} title="修改此句轉寫" aria-label="修改此句轉寫" onClick={() => setEditTarget({ segment: s, hotword: false, selection: "" })}><Pencil className="h-3.5 w-3.5" /></Button>
                         {canManage && <Button size="icon" variant="ghost" className="h-7 w-7" disabled={busy} title="提交熱詞標註" aria-label="提交熱詞標註" onMouseDown={(event) => event.preventDefault()} onClick={() => setEditTarget({ segment: s, hotword: true, selection: window.getSelection()?.toString().trim() ?? "" })}><Tag className="h-3.5 w-3.5" /></Button>}
                       </div>}
+                      <div className={cn("flex", s.channel_role === "customer" && "justify-end")}>
+                        <TranscriptAmendmentHint entries={(transcript.amendments ?? []).filter((entry) => entry.segment_id === String(s.id))} />
+                      </div>
                       <div className={cn("flex", s.channel_role === "customer" && "justify-end")}>
                         {s.channel_role === "customer" && complaintTrigger(s.text) && <SupervisorAlert key={`${projectId}:${recordingId}:${i}`} active={s.start_ms <= currentMs} contact={supervisor.contact} error={supervisor.error} />}
                       </div>

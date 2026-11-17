@@ -1,5 +1,9 @@
 "use client";
 
+import * as React from "react";
+import { apiJson } from "@/lib/api";
+import { menuVisible } from "@/lib/navigation";
+
 import {
   AudioLines,
   AlertTriangle,
@@ -36,7 +40,7 @@ const WORKSPACE: ReadonlyArray<NavItem> = [
   { href: "/agents", label: "Agent scorecards", icon: Users },
   { href: "/batches", label: "Batches", icon: Layers },
   { href: "/evaluator", label: "Evaluator", icon: ListChecks, pill: "AI" },
-  { href: "/knowledge", label: "Knowledge", icon: BookOpen },
+  { href: "/amendments", label: "Transcript changes", icon: BookOpen },
 ];
 
 const MODULES: ReadonlyArray<NavItem> = [
@@ -104,15 +108,28 @@ function NavGroup({
 export function NavLinks({
   modules,
   industry,
+  projectId,
 }: {
   modules?: Record<string, unknown>;
   industry?: string;
+  projectId?: string;
 }) {
   const pathname = usePathname() ?? "";
+  const [visibility, setVisibility] = React.useState<Record<string, boolean>>({});
+  React.useEffect(() => {
+    let active = true;
+    const load = () => { void apiJson<Record<string, boolean>>("/api/settings/navigation", "get", { params: { query: { project_id: projectId } } })
+      .then((value) => { if (active) setVisibility(value); }).catch(() => {}); };
+    load(); window.addEventListener("navigation-settings-changed", load);
+    return () => { active = false; window.removeEventListener("navigation-settings-changed", load); };
+  }, [projectId]);
   const showModules = hasTradeReconciliation(modules);
+  const visibleWorkspace = WORKSPACE.filter(
+    (item) => menuVisible(item.href, visibility),
+  );
   const workspaceItems =
     industry === "insurance"
-      ? WORKSPACE.map((item) => ({
+      ? visibleWorkspace.map((item) => ({
           ...item,
           label:
             {
@@ -124,13 +141,13 @@ export function NavLinks({
               "/evaluator": "QA criteria",
             }[item.href] ?? item.label,
         }))
-      : WORKSPACE;
+      : visibleWorkspace;
 
   return (
     <nav className="flex flex-col gap-5" aria-label="Primary">
       <NavGroup label="Workspace" items={workspaceItems} pathname={pathname} />
-      {showModules && <NavGroup label="Modules" items={MODULES} pathname={pathname} />}
-      <NavGroup items={SYSTEM} pathname={pathname} />
+      {showModules && <NavGroup label="Modules" items={MODULES.filter((item) => menuVisible(item.href, visibility))} pathname={pathname} />}
+      <NavGroup items={SYSTEM.filter((item) => menuVisible(item.href, visibility))} pathname={pathname} />
     </nav>
   );
 }
