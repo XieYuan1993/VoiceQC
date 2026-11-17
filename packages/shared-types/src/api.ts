@@ -3168,7 +3168,7 @@ export interface components {
         /** SegmentOut */
         SegmentOut: {
             /** Id */
-            id?: string | null;
+            id?: number | null;
             /** Channel Role */
             channel_role: string;
             /** Start Ms */
@@ -4651,7 +4651,7 @@ export interface operations {
             header?: never;
             path: {
                 recording_id: string;
-                segment_id: string;
+                segment_id: number;
             };
             cookie?: never;
         };

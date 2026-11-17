@@ -65,7 +65,7 @@ def format_transcript(segments):
 @router.patch("/{recording_id}/transcript/segments/{segment_id}")
 async def edit_segment(
     recording_id: uuid.UUID,
-    segment_id: uuid.UUID,
+    segment_id: int,
     payload: TranscriptEditIn,
     project_id: uuid.UUID = Depends(resolve_project_id),
     user: User = Depends(require(EVALS_REVIEW)),

@@ -177,7 +177,7 @@ class RecordingReevaluateIn(BaseModel):
 
 
 class SegmentOut(BaseModel):
-    id: uuid.UUID | None = None
+    id: int | None = None
     channel_role: str
     start_ms: int
     end_ms: int
