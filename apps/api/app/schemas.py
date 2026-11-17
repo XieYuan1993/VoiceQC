@@ -305,6 +305,12 @@ class TermIn(BaseModel):
 class TermOut(TermIn):
     id: uuid.UUID
     created_at: datetime
+    approval_status: str
+    submitted_by: str | None = None
+    submitted_at: datetime | None = None
+    reviewed_by: str | None = None
+    reviewed_at: datetime | None = None
+    pending_rules: list[dict] = Field(default_factory=list)
 
 
 class TermImportResult(BaseModel):

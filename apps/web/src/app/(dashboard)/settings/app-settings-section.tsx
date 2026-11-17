@@ -218,7 +218,7 @@ function SettingDialog({
           ) : isReconFilters ? (
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>訂單狀態</Label>
+                <Label>Order status</Label>
                 <div className="max-h-56 space-y-1.5 overflow-auto rounded-md border p-3">
                   {ORDER_STATUS_OPTIONS.map((value) => (
                     <label key={value} className="flex items-center gap-2 text-sm">
@@ -234,7 +234,7 @@ function SettingDialog({
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>執行類型</Label>
+                <Label>Execution type</Label>
                 <div className="max-h-56 space-y-1.5 overflow-auto rounded-md border p-3">
                   {EXECUTION_TYPE_OPTIONS.map((value) => (
                     <label key={value || "__blank"} className="flex items-center gap-2 text-sm">

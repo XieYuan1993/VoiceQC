@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, Pencil, Plus, Trash2, Upload } from "lucide-react";
+import { Check, X, Loader2, Pencil, Plus, Trash2, Upload } from "lucide-react";
 import * as React from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -17,7 +17,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -27,8 +26,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { apiCall, getApiErrorMessage, uploadMultipart } from "@/lib/api";
+import { apiCall, apiJson, getApiErrorMessage, uploadMultipart } from "@/lib/api";
 import type { Term, TermImportResult, TermIn } from "@/lib/types";
+import { formatDateTime } from "@/lib/format";
 
 const MAX_ALIAS_CHIPS = 4;
 
@@ -48,7 +48,6 @@ function TermDialog({
   const [stockCode, setStockCode] = React.useState(term?.stock_code ?? "");
   const [aliasesText, setAliasesText] = React.useState((term?.aliases ?? []).join(", "));
   const [boostText, setBoostText] = React.useState(term?.boost != null ? String(term.boost) : "");
-  const [active, setActive] = React.useState(term?.active ?? true);
   const [notes, setNotes] = React.useState(term?.notes ?? "");
   const [error, setError] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(false);
@@ -73,7 +72,7 @@ function TermDialog({
         .map((a) => a.trim())
         .filter(Boolean),
       boost,
-      active,
+      active: false,
       notes: notes.trim() === "" ? null : notes.trim(),
     };
     setPending(true);
@@ -86,7 +85,7 @@ function TermDialog({
         });
       } else {
         await apiCall("/api/terms/{term_id}", "patch", {
-          params: { path: { term_id: term.id } },
+          params: { path: { term_id: term.id }, query: { project_id: projectId } },
           body,
         });
       }
@@ -103,7 +102,7 @@ function TermDialog({
         <DialogHeader>
           <DialogTitle>{term === null ? "Add term" : "Edit term"}</DialogTitle>
           <DialogDescription>
-            Terms feed speech adaptation — canonical name plus spoken aliases.
+            Submission status: pending approval. Changes to approved hotwords also require approval.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={onSubmit} className="space-y-4">
@@ -144,7 +143,7 @@ function TermDialog({
               id="term-aliases"
               value={aliasesText}
               onChange={(e) => setAliasesText(e.target.value)}
-              placeholder="騰訊, 企鵝, Tencent Holdings"
+              placeholder="Tencent, Tencent Holdings"
             />
           </div>
           <div className="grid grid-cols-2 items-end gap-4">
@@ -158,10 +157,6 @@ function TermDialog({
                 onChange={(e) => setBoostText(e.target.value)}
                 placeholder="STT adaptation boost"
               />
-            </div>
-            <div className="flex items-center gap-2 pb-2">
-              <Switch id="term-active" checked={active} onCheckedChange={setActive} />
-              <Label htmlFor="term-active">Active</Label>
             </div>
           </div>
           <div className="space-y-2">
@@ -180,7 +175,7 @@ function TermDialog({
             </Button>
             <Button type="submit" disabled={pending}>
               {pending && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />}
-              {term === null ? "Add term" : "Save changes"}
+              Submit for approval
             </Button>
           </DialogFooter>
         </form>
@@ -192,13 +187,18 @@ function TermDialog({
 export function TermsSection({
   canManage,
   projectId,
+  canApprove = false,
 }: {
   canManage: boolean;
+  canApprove?: boolean;
   projectId?: string;
 }) {
   const [terms, setTerms] = React.useState<Term[] | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [category, setCategory] = React.useState("");
+  const [approval, setApproval] = React.useState("");
+  const [reviewing, setReviewing] = React.useState<string | null>(null);
+  const [reviewError, setReviewError] = React.useState("");
   const [dialog, setDialog] = React.useState<{ open: boolean; term: Term | null }>({
     open: false,
     term: null,
@@ -234,7 +234,7 @@ export function TermsSection({
     setDeleteError(null);
     try {
       await apiCall("/api/terms/{term_id}", "delete", {
-        params: { path: { term_id: deleting.id } },
+        params: { path: { term_id: deleting.id }, query: { project_id: projectId } },
       });
       setDeleting(null);
       void load();
@@ -269,14 +269,23 @@ export function TermsSection({
   const categories =
     terms === null ? [] : Array.from(new Set(terms.map((t) => t.category))).sort();
   const filtered =
-    terms === null ? [] : category ? terms.filter((t) => t.category === category) : terms;
+    (terms ?? []).filter((t) => (!category || t.category === category) && (!approval || t.approval_status === approval));
+
+  async function review(term: Term, decision: "approve" | "reject") {
+    setReviewing(term.id); setReviewError("");
+    try {
+      await apiJson(`/api/terms/${term.id}/review`, "post", { params: { query: { project_id: projectId, decision } } });
+      await load();
+    } catch (error) { setReviewError(getApiErrorMessage(error)); }
+    finally { setReviewing(null); }
+  }
 
   return (
     <Card className="overflow-hidden">
       <CardHeader>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <CardTitle className="text-base">熱詞管理</CardTitle>
+            <CardTitle className="text-base">Hotwords</CardTitle>
             <CardDescription>
               Glossary that improves transcription accuracy — names, jargon, and their aliases.
             </CardDescription>
@@ -324,6 +333,10 @@ export function TermsSection({
               </option>
             ))}
           </Select>
+          <Select value={approval} onChange={(e) => setApproval(e.target.value)} wrapperClassName="w-44" aria-label="Approval status">
+            <option value="">All statuses</option><option value="pending">Pending approval</option><option value="approved">Approved</option><option value="rejected">Rejected</option>
+          </Select>
+          {reviewError && <p role="alert" className="text-sm text-destructive">{reviewError}</p>}
           {importMessage && (
             <span className="text-sm text-emerald-700 dark:text-emerald-400">{importMessage}</span>
           )}
@@ -351,7 +364,9 @@ export function TermsSection({
                 <TableHead>Canonical</TableHead>
                 <TableHead>Code</TableHead>
                 <TableHead>Aliases</TableHead>
-                <TableHead>Active</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Submitted by / time</TableHead>
+                <TableHead>Reviewed by</TableHead>
                 {canManage && <TableHead className="text-right">Actions</TableHead>}
               </TableRow>
             </TableHeader>
@@ -359,9 +374,9 @@ export function TermsSection({
               {filtered.map((t) => {
                 const aliases = t.aliases ?? [];
                 return (
-                  <TableRow key={t.id} className={t.active ? undefined : "opacity-60"}>
+                  <TableRow key={t.id}>
                     <TableCell className="whitespace-nowrap">{t.category}</TableCell>
-                    <TableCell className="font-medium">{t.canonical}</TableCell>
+                    <TableCell className="font-medium">{t.canonical}{(t.pending_rules ?? []).map((rule, index) => <div key={index} className="mt-1 text-xs font-normal text-muted-foreground">{String(rule.wrong)} → {String(rule.correct)}</div>)}</TableCell>
                     <TableCell className="tabular-nums">{t.stock_code ?? "—"}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
@@ -385,18 +400,25 @@ export function TermsSection({
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={t.active ? "success" : "neutral"}>
-                        {t.active ? "active" : "inactive"}
+                      <Badge variant={t.approval_status === "pending" ? "warning" : t.active ? "success" : "neutral"}>
+                        {t.approval_status === "pending" ? "Pending approval" : t.approval_status === "rejected" ? "Rejected" : t.active ? "active" : "inactive"}
                       </Badge>
                     </TableCell>
+                    <TableCell className="max-w-48 break-words">{t.submitted_by ?? "Legacy record"}<div className="mt-1 text-xs text-muted-foreground">{formatDateTime(t.submitted_at)}</div></TableCell>
+                    <TableCell className="max-w-48 break-words">{t.reviewed_by ?? "—"}</TableCell>
                     {canManage && (
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
+                          {canApprove && t.approval_status === "pending" && <>
+                            <Button variant="ghost" size="icon" disabled={reviewing !== null} title="Approve and activate" aria-label={`Approve ${t.canonical}`} onClick={() => void review(t, "approve")}><Check className="h-4 w-4 text-emerald-600" /></Button>
+                            <Button variant="ghost" size="icon" disabled={reviewing !== null} title="Reject" aria-label={`Reject ${t.canonical}`} onClick={() => void review(t, "reject")}><X className="h-4 w-4 text-destructive" /></Button>
+                          </>}
                           <Button
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8"
                             aria-label={`Edit ${t.canonical}`}
+                            disabled={reviewing !== null}
                             onClick={() => setDialog({ open: true, term: t })}
                           >
                             <Pencil className="h-4 w-4" aria-hidden />
@@ -406,6 +428,7 @@ export function TermsSection({
                             size="icon"
                             className="h-8 w-8 text-destructive hover:text-destructive"
                             aria-label={`Delete ${t.canonical}`}
+                            disabled={reviewing !== null}
                             onClick={() => {
                               setDeleteError(null);
                               setDeleting(t);
@@ -443,7 +466,7 @@ export function TermsSection({
               <DialogTitle>Delete term</DialogTitle>
               <DialogDescription>
                 Delete &quot;{deleting.canonical}&quot;? This cannot be undone. To stop using a
-                term without losing it, deactivate it from Edit instead.
+                term without losing it, cancel this action.
               </DialogDescription>
             </DialogHeader>
             {deleteError && <p className="text-sm text-destructive">{deleteError}</p>}

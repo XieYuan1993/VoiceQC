@@ -175,7 +175,7 @@ async def test_segment_save_updates_full_text_and_audits(monkeypatch, hotword):
         channel_role="broker",
         text="安富你好",
     )
-    audits, writes, inserts, commits = [], [], [], []
+    audits, writes, commits = [], [], []
 
     async def scoped(session, user, rid, pid):
         assert (rid, pid) == (recording_id, project)
@@ -200,8 +200,8 @@ async def test_segment_save_updates_full_text_and_audits(monkeypatch, hotword):
                     assert transcript_id in statement.compile().params.values()
                     return SimpleNamespace(scalar_one_or_none=lambda: segment)
                 return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [segment]))
-            if "INSERT INTO industry_terms" in sql:
-                inserts.append(statement)
+            if "FROM industry_terms" in sql:
+                return SimpleNamespace(scalar_one_or_none=lambda: None)
 
         async def get(self, model, key):
             return None
@@ -238,8 +238,12 @@ async def test_segment_save_updates_full_text_and_audits(monkeypatch, hotword):
     )
     if hotword:
         assert writes[0].project_id == project
-        assert writes[0].value[0]["correct"] == "富衛"
-        assert inserts[0].compile().params["aliases"] == []
+        assert writes[0].pending_rules[0]["correct"] == "富衛"
+        assert writes[0].aliases == []
+        assert writes[0].active is False
+        assert writes[0].approval_status == "pending"
+        assert writes[0].submitted_by == "admin@example.test"
+        assert len(writes) == 1  # No live correction setting before approval.
 
 
 @pytest.mark.anyio

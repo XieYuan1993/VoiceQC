@@ -5,12 +5,10 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select, text
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from voiceqa_shared.audit import log_audit
 from voiceqa_shared.db_models import (
-    AppSetting,
     IndustryTerm,
     Recording,
     Transcript,
@@ -22,6 +20,7 @@ from app.db import get_session
 from app.deps import ClientMeta, client_meta, resolve_project_id
 from app.permissions import EVALS_REVIEW, TERMS_WRITE, has_perm, require
 from app.routers.recordings import _get_scoped
+from app.term_approval import lock_terms, mark_pending
 
 router = APIRouter(prefix="/api/recordings", tags=["transcript-edits"])
 
@@ -101,58 +100,33 @@ async def edit_segment(
     old = segment.text
     changed = old != payload.text.strip()
     if payload.wrong or payload.correct:
-        # Serialize edits across recordings in this project, including the case
-        # where no settings row exists yet. Wrong spellings are NOT ASR aliases.
-        await session.execute(
-            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
-            {"key": f"transcript-hotwords:{project_id}"},
-        )
+        await lock_terms(session, project_id)
         wrong, correct = payload.wrong.strip(), payload.correct.strip()
         rule = {
             "wrong": wrong,
             "correct": correct,
             "context": payload.context.strip() or old[:1000],
         }
-        if wrong and wrong != correct:
-            setting = await session.get(
-                AppSetting, (project_id, "asr.post_correction_replacements")
+        existing = (
+            await session.execute(
+                select(IndustryTerm.id).where(
+                    IndustryTerm.project_id == project_id,
+                    IndustryTerm.canonical == correct,
+                )
             )
-            rules = list(setting.value or []) if setting else []
-            if any(item.get("wrong") == wrong and item.get("correct") != correct for item in rules):
-                raise HTTPException(
-                    409,
-                    "This hotword already has a different correction; review it in the evaluator",
-                )
-            if not any(
-                item.get("wrong") == wrong and item.get("correct") == correct for item in rules
-            ):
-                rules.append(rule)
-            if len(rules) > 500:
-                raise HTTPException(400, "This project already has 500 correction annotations")
-            if setting:
-                setting.value, setting.updated_by = rules, user.id
-            else:
-                session.add(
-                    AppSetting(
-                        project_id=project_id,
-                        key="asr.post_correction_replacements",
-                        value=rules,
-                        updated_by=user.id,
-                    )
-                )
-        statement = insert(IndustryTerm).values(
+        ).scalar_one_or_none()
+        if existing is not None:
+            raise HTTPException(409, "This term already exists; edit it in the term list")
+        term = IndustryTerm(
             project_id=project_id,
             canonical=correct,
             category=payload.category,
             aliases=[],
-            active=True,
             notes="Transcript hotword annotation",
+            pending_rules=[rule] if wrong and wrong != correct else [],
         )
-        await session.execute(
-            statement.on_conflict_do_update(
-                constraint="uq_industry_terms_project_id_canonical", set_={"active": True}
-            )
-        )
+        mark_pending(term, user)
+        session.add(term)
         log_audit(
             session,
             action="transcript.hotword",
@@ -186,8 +160,13 @@ async def edit_segment(
             actor_email=user.email,
             object_type="transcript",
             object_id=str(transcript.id),
-            details={"recording_id": str(rec.id), "segment_id": str(segment.id), "start_ms": segment.start_ms,
-                     "before": old, "after": segment.text},
+            details={
+                "recording_id": str(rec.id),
+                "segment_id": str(segment.id),
+                "start_ms": segment.start_ms,
+                "before": old,
+                "after": segment.text,
+            },
             ip=meta.ip,
             user_agent=meta.user_agent,
         )

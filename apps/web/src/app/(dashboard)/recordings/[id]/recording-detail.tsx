@@ -150,7 +150,7 @@ function ReprocessMenu({
             </span>
           </button>
           <div className="my-1 border-t" />
-          {([['manual_split_16k_yue', 'Dyna 粵語'], ['manual_split_16k', 'Dyna 普通話']] as const).map(([model, label]) => <button type="button" role="menuitem" key={model} className="block w-full rounded-sm px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => { setOpen(false); onSelect("stt", "dyna", model); }}>{label}</button>)}
+          {([['manual_split_16k_yue', 'Dyna Cantonese'], ['manual_split_16k', 'Dyna Mandarin']] as const).map(([model, label]) => <button type="button" role="menuitem" key={model} className="block w-full rounded-sm px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground" onClick={() => { setOpen(false); onSelect("stt", "dyna", model); }}>{label}</button>)}
         </div>
       )}
     </div>
@@ -661,7 +661,7 @@ export function RecordingDetailView({
                   <Download className="mr-2 h-4 w-4" aria-hidden />
                   Segmented file
                 </Button>
-                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={replayTranscript} onChange={(e) => { setReplayTranscript(e.target.checked); setShowRaw(false); if (audioRef.current) { audioRef.current.pause(); audioRef.current.currentTime = 0; } setCurrentMs(0); }} />錄音逐句回放</label>
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={replayTranscript} onChange={(e) => { setReplayTranscript(e.target.checked); setShowRaw(false); if (audioRef.current) { audioRef.current.pause(); audioRef.current.currentTime = 0; } setCurrentMs(0); }} />Replay transcript with audio</label>
                 <Button disabled={replayTranscript} variant="ghost" size="sm" onClick={() => setShowRaw((v) => !v)}>
                   {showRaw ? "Hide raw text" : "Show raw text"}
                 </Button>
@@ -682,7 +682,7 @@ export function RecordingDetailView({
               </p>
             ) : (
               <div className="space-y-4">
-                {transcript.edited_at && <p className="text-xs text-amber-700 dark:text-amber-300">{formatDateTime(transcript.edited_at)} · 人工修訂。分析結果請以修訂後重新執行的版本為準。</p>}
+                {transcript.edited_at && <p className="text-xs text-amber-700 dark:text-amber-300">{formatDateTime(transcript.edited_at)} · Manually edited. Re-run analysis to reflect the changes.</p>}
                 {!replayTranscript && transcript.audio_reviews && transcript.audio_reviews.length > 0 && (
                   <section className="space-y-3 border-b pb-4">
                     <h3 className="text-sm font-semibold">Audio review</h3>
@@ -713,7 +713,7 @@ export function RecordingDetailView({
                   </p>
                 ) : (
                   <div ref={transcriptScrollRef} className="max-h-[36rem] space-y-2 overflow-y-auto pr-1" aria-live={replayTranscript ? "polite" : "off"}>
-                    {replayTranscript && currentMs === 0 && <p className="p-3 text-sm text-muted-foreground">等待錄音播放…</p>}
+                    {replayTranscript && currentMs === 0 && <p className="p-3 text-sm text-muted-foreground">Waiting for audio playback...</p>}
                     {transcript.segments.map((s, i) => (!replayTranscript || s.start_ms <= currentMs) && (
                       <div key={i} className="space-y-1">
                       <SegmentBubble
@@ -727,8 +727,8 @@ export function RecordingDetailView({
                         }}
                       />
                       {canReview && s.id && <div className={cn("flex gap-1", s.channel_role === "customer" && "justify-end")}>
-                        <Button size="icon" variant="ghost" className="h-7 w-7" disabled={busy} title="修改此句轉寫" aria-label="修改此句轉寫" onClick={() => setEditTarget({ segment: s, hotword: false, selection: "" })}><Pencil className="h-3.5 w-3.5" /></Button>
-                        {canManage && <Button size="icon" variant="ghost" className="h-7 w-7" disabled={busy} title="提交熱詞標註" aria-label="提交熱詞標註" onMouseDown={(event) => event.preventDefault()} onClick={() => setEditTarget({ segment: s, hotword: true, selection: window.getSelection()?.toString().trim() ?? "" })}><Tag className="h-3.5 w-3.5" /></Button>}
+                        <Button size="icon" variant="ghost" className="h-7 w-7" disabled={busy} title="Edit this transcript segment" aria-label="Edit this transcript segment" onClick={() => setEditTarget({ segment: s, hotword: false, selection: "" })}><Pencil className="h-3.5 w-3.5" /></Button>
+                        {canManage && <Button size="icon" variant="ghost" className="h-7 w-7" disabled={busy} title="Submit hotword" aria-label="Submit hotword" onMouseDown={(event) => event.preventDefault()} onClick={() => setEditTarget({ segment: s, hotword: true, selection: window.getSelection()?.toString().trim() ?? "" })}><Tag className="h-3.5 w-3.5" /></Button>}
                       </div>}
                       <div className={cn("flex", s.channel_role === "customer" && "justify-end")}>
                         <TranscriptAmendmentHint entries={(transcript.amendments ?? []).filter((entry) => entry.segment_id === String(s.id))} />
@@ -749,7 +749,7 @@ export function RecordingDetailView({
         )}
       </Card>
       <KnowledgeCardDialog projectId={projectId} card={selectedKnowledgeCard} onClose={() => setSelectedKnowledgeCard(null)} />
-      {editTarget && <TranscriptEditor key={`${editTarget.segment.id}:${editTarget.hotword}`} projectId={projectId} recordingId={recordingId} {...editTarget} canTerms={canManage} onClose={() => setEditTarget(null)} onSaved={async (changed, hotword) => { await loadTranscript(); setNotice(hotword ? "已提交項目熱詞標註。Dyna 平台詞庫需另行同步。" : changed ? "轉寫已儲存，請重新執行 CRS／evaluation。" : "文字沒有變更。"); }} />}
+      {editTarget && <TranscriptEditor key={`${editTarget.segment.id}:${editTarget.hotword}`} projectId={projectId} recordingId={recordingId} {...editTarget} canTerms={canManage} onClose={() => setEditTarget(null)} onSaved={async (changed, hotword) => { await loadTranscript(); setNotice(hotword ? "Hotword submitted for admin approval. The Dyna vocabulary must still be synchronized separately." : changed ? "Transcript saved. Re-run CRS classification or evaluation." : "No text changes."); }} />}
       {crsOnly && <CrsPanel projectId={projectId} recordingId={recordingId} recordingStatus={rec.status} canRun={canReview} transcriptEditedAt={transcript?.edited_at} onChanged={() => void loadRecording()} />}
     </div>
   );

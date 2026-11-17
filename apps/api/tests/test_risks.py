@@ -76,5 +76,5 @@ async def test_risk_inbox_groups_evidence_per_recording(monkeypatch):
         page=1, q="", kind=None, project_id=project, user=None, session=Session()
     )
     assert result["total"] == 1
-    assert result["items"][0]["hits"][0]["label"] == "投訴升級"
+    assert result["items"][0]["hits"][0]["label"] == "Complaint escalation"
     assert result["items"][0]["hits"][0]["start_ms"] == 1000

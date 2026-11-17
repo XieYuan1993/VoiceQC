@@ -14,13 +14,13 @@ export function TranscriptKnowledgeHints({ matches, onSelect }: {
     const card = matches[0].card;
     return <button type="button" className={`inline-flex max-w-full items-start gap-2 rounded-md border px-3 py-1.5 text-left text-xs hover:brightness-95 ${colors}`} onClick={() => onSelect(card)}>
       <BookOpen className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-      <span className="min-w-0 break-words">知識卡片 · {card.code} · {card.title}</span>
+      <span className="min-w-0 break-words">Knowledge card · {card.code} · {card.title}</span>
     </button>;
   }
   return <details className={`group w-full max-w-lg rounded-md border text-xs ${colors}`}>
     <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 [&::-webkit-details-marker]:hidden">
       <BookOpen className="h-3.5 w-3.5 shrink-0" aria-hidden />
-      <span className="min-w-0 flex-1">知識提示 · {matches.length} 張卡片</span>
+      <span className="min-w-0 flex-1">Knowledge hints · {matches.length} cards</span>
       <ChevronDown className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-180" aria-hidden />
     </summary>
     <div className="max-h-48 overflow-y-auto border-t border-amber-300/60 dark:border-amber-700">

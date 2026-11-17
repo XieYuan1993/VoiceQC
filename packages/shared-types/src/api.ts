@@ -608,6 +608,23 @@ export interface paths {
         patch: operations["update_term_api_terms__term_id__patch"];
         trace?: never;
     };
+    "/api/terms/{term_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Review Term */
+        post: operations["review_term_api_terms__term_id__review_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/terms/import-csv": {
         parameters: {
             query?: never;
@@ -3448,6 +3465,20 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Approval Status */
+            approval_status: string;
+            /** Submitted By */
+            submitted_by?: string | null;
+            /** Submitted At */
+            submitted_at?: string | null;
+            /** Reviewed By */
+            reviewed_by?: string | null;
+            /** Reviewed At */
+            reviewed_at?: string | null;
+            /** Pending Rules */
+            pending_rules?: {
+                [key: string]: unknown;
+            }[];
         };
         /** TradeOut */
         TradeOut: {
@@ -4921,7 +4952,9 @@ export interface operations {
     };
     delete_term_api_terms__term_id__delete: {
         parameters: {
-            query?: never;
+            query?: {
+                project_id?: string | null;
+            };
             header?: never;
             path: {
                 term_id: string;
@@ -4950,7 +4983,9 @@ export interface operations {
     };
     update_term_api_terms__term_id__patch: {
         parameters: {
-            query?: never;
+            query?: {
+                project_id?: string | null;
+            };
             header?: never;
             path: {
                 term_id: string;
@@ -4962,6 +4997,40 @@ export interface operations {
                 "application/json": components["schemas"]["TermIn"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TermOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    review_term_api_terms__term_id__review_post: {
+        parameters: {
+            query: {
+                decision: "approve" | "reject";
+                project_id?: string | null;
+            };
+            header?: never;
+            path: {
+                term_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

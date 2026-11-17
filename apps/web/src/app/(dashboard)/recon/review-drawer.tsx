@@ -641,10 +641,10 @@ export function ReviewDrawer({
                   </span>
                 </>
               ) : (
-                "鈥?"
+                "—"
               )
             }
-            right="鈥?"
+            right="—"
           />
         </div>
 

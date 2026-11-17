@@ -23,9 +23,11 @@ const TABS: ReadonlyArray<{ id: TabId; label: string }> = [
 export function EvaluatorTabs({
   projectId,
   canManage,
+  canApprove,
 }: {
   projectId: string;
   canManage: boolean;
+  canApprove: boolean;
 }) {
   const [tab, setTab] = React.useState<TabId>("criteria");
   React.useEffect(() => {
@@ -64,7 +66,7 @@ export function EvaluatorTabs({
       {tab === "criteria" && <CriteriaSection canManage={canManage} projectId={projectId} />}
       {tab === "fields" && <ExtractionFieldsSection canManage={canManage} projectId={projectId} />}
       {tab === "checklist" && <ChecklistSection canManage={canManage} projectId={projectId} />}
-      {tab === "kb" && <KnowledgeWorkspace canManage={canManage} projectId={projectId} />}
+      {tab === "kb" && <KnowledgeWorkspace canManage={canManage} canApprove={canApprove} projectId={projectId} />}
       {tab === "generate" && <GeneratePanel projectId={projectId} />}
     </div>
   );

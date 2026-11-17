@@ -11,6 +11,8 @@ from __future__ import annotations
 import csv
 import io
 import uuid
+from datetime import UTC, datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from sqlalchemy import select
@@ -22,6 +24,7 @@ from app.db import get_session
 from app.deps import ClientMeta, client_meta, resolve_project_id
 from app.permissions import CONFIG_READ, TERMS_WRITE, require
 from app.schemas import TermImportResult, TermIn, TermOut
+from app.term_approval import lock_terms, mark_pending, publish_rules, require_admin
 
 router = APIRouter(prefix="/api/terms", tags=["terms"])
 
@@ -39,6 +42,12 @@ def _out(term: IndustryTerm) -> TermOut:
         active=term.active,
         notes=term.notes,
         created_at=term.created_at,
+        approval_status=term.approval_status,
+        submitted_by=term.submitted_by,
+        submitted_at=term.submitted_at,
+        reviewed_by=term.reviewed_by,
+        reviewed_at=term.reviewed_at,
+        pending_rules=term.pending_rules or [],
     )
 
 
@@ -75,6 +84,7 @@ async def create_term(
     session: AsyncSession = Depends(get_session),
     meta: ClientMeta = Depends(client_meta),
 ) -> TermOut:
+    await lock_terms(session, project_id)
     existing = (
         await session.execute(
             select(IndustryTerm.id).where(
@@ -92,15 +102,22 @@ async def create_term(
         stock_code=_normalize_code(payload.stock_code),
         aliases=payload.aliases,
         boost=payload.boost,
-        active=payload.active,
+        active=False,
         notes=payload.notes,
     )
+    mark_pending(term, user)
     session.add(term)
     await session.flush()
     log_audit(
-        session, action="terms.create", user_id=user.id, actor_email=user.email,
-        object_type="term", object_id=str(term.id), details={"canonical": term.canonical},
-        ip=meta.ip, user_agent=meta.user_agent,
+        session,
+        action="terms.create",
+        user_id=user.id,
+        actor_email=user.email,
+        object_type="term",
+        object_id=str(term.id),
+        details={"canonical": term.canonical},
+        ip=meta.ip,
+        user_agent=meta.user_agent,
     )
     await session.commit()
     return _out(term)
@@ -110,11 +127,19 @@ async def create_term(
 async def update_term(
     term_id: uuid.UUID,
     payload: TermIn,
+    project_id: uuid.UUID = Depends(resolve_project_id),
     user: User = Depends(require(TERMS_WRITE)),
     session: AsyncSession = Depends(get_session),
     meta: ClientMeta = Depends(client_meta),
 ) -> TermOut:
-    term = await session.get(IndustryTerm, term_id)
+    await lock_terms(session, project_id)
+    term = (
+        await session.execute(
+            select(IndustryTerm)
+            .where(IndustryTerm.id == term_id, IndustryTerm.project_id == project_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
     if term is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "term not found")
     existing = (
@@ -129,16 +154,24 @@ async def update_term(
     if existing is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, f"term {payload.canonical!r} already exists")
     term.category = payload.category
+    if term.pending_rules:
+        term.pending_rules = [{**rule, "correct": payload.canonical} for rule in term.pending_rules]
     term.canonical = payload.canonical
     term.stock_code = _normalize_code(payload.stock_code)
     term.aliases = payload.aliases
     term.boost = payload.boost
-    term.active = payload.active
+    mark_pending(term, user)
     term.notes = payload.notes
     log_audit(
-        session, action="terms.update", user_id=user.id, actor_email=user.email,
-        object_type="term", object_id=str(term.id), details={"canonical": term.canonical},
-        ip=meta.ip, user_agent=meta.user_agent,
+        session,
+        action="terms.update",
+        user_id=user.id,
+        actor_email=user.email,
+        object_type="term",
+        object_id=str(term.id),
+        details={"canonical": term.canonical},
+        ip=meta.ip,
+        user_agent=meta.user_agent,
     )
     await session.commit()
     return _out(term)
@@ -147,20 +180,76 @@ async def update_term(
 @router.delete("/{term_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_term(
     term_id: uuid.UUID,
+    project_id: uuid.UUID = Depends(resolve_project_id),
     user: User = Depends(require(TERMS_WRITE)),
     session: AsyncSession = Depends(get_session),
     meta: ClientMeta = Depends(client_meta),
 ) -> None:
-    term = await session.get(IndustryTerm, term_id)
+    await lock_terms(session, project_id)
+    term = (
+        await session.execute(
+            select(IndustryTerm)
+            .where(IndustryTerm.id == term_id, IndustryTerm.project_id == project_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
     if term is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "term not found")
     log_audit(
-        session, action="terms.delete", user_id=user.id, actor_email=user.email,
-        object_type="term", object_id=str(term.id), details={"canonical": term.canonical},
-        ip=meta.ip, user_agent=meta.user_agent,
+        session,
+        action="terms.delete",
+        user_id=user.id,
+        actor_email=user.email,
+        object_type="term",
+        object_id=str(term.id),
+        details={"canonical": term.canonical},
+        ip=meta.ip,
+        user_agent=meta.user_agent,
     )
     await session.delete(term)
     await session.commit()
+
+
+@router.post("/{term_id}/review", response_model=TermOut)
+async def review_term(
+    term_id: uuid.UUID,
+    decision: Literal["approve", "reject"],
+    project_id: uuid.UUID = Depends(resolve_project_id),
+    user: User = Depends(require(TERMS_WRITE)),
+    session: AsyncSession = Depends(get_session),
+    meta: ClientMeta = Depends(client_meta),
+):
+    require_admin(user)
+    await lock_terms(session, project_id)
+    term = (
+        await session.execute(
+            select(IndustryTerm)
+            .where(IndustryTerm.id == term_id, IndustryTerm.project_id == project_id)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if term is None:
+        raise HTTPException(404, "term not found")
+    if term.approval_status != "pending":
+        raise HTTPException(409, "Only pending terms can be reviewed")
+    if decision == "approve":
+        await publish_rules(session, term, user)
+    term.active = decision == "approve"
+    term.approval_status = "approved" if term.active else "rejected"
+    term.reviewed_by, term.reviewed_at = user.email, datetime.now(UTC)
+    log_audit(
+        session,
+        action=f"terms.{decision}",
+        user_id=user.id,
+        actor_email=user.email,
+        object_type="term",
+        object_id=str(term.id),
+        details={"canonical": term.canonical},
+        ip=meta.ip,
+        user_agent=meta.user_agent,
+    )
+    await session.commit()
+    return _out(term)
 
 
 @router.post("/import-csv", response_model=TermImportResult)
@@ -187,13 +276,14 @@ async def import_csv(
             f"csv needs columns {sorted(required)}, got {reader.fieldnames}",
         )
 
+    await lock_terms(session, project_id)
     existing = {
         t.canonical: t
         for t in (
-            await session.execute(
-                select(IndustryTerm).where(IndustryTerm.project_id == project_id)
-            )
-        ).scalars().all()
+            await session.execute(select(IndustryTerm).where(IndustryTerm.project_id == project_id))
+        )
+        .scalars()
+        .all()
     }
     created = updated = 0
     for row in reader:
@@ -210,15 +300,23 @@ async def import_csv(
             term = existing[canonical]
             for key, value in fields.items():
                 setattr(term, key, value)
+            mark_pending(term, user)
             updated += 1
         else:
-            session.add(IndustryTerm(project_id=project_id, canonical=canonical, **fields))
+            term = IndustryTerm(project_id=project_id, canonical=canonical, **fields)
+            mark_pending(term, user)
+            session.add(term)
+            existing[canonical] = term
             created += 1
 
     log_audit(
-        session, action="terms.import_csv", user_id=user.id, actor_email=user.email,
+        session,
+        action="terms.import_csv",
+        user_id=user.id,
+        actor_email=user.email,
         details={"created": created, "updated": updated, "filename": file.filename},
-        ip=meta.ip, user_agent=meta.user_agent,
+        ip=meta.ip,
+        user_agent=meta.user_agent,
     )
     await session.commit()
     return TermImportResult(created=created, updated=updated)

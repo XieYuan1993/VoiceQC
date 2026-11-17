@@ -34,7 +34,7 @@ PHRASES = [
     "非常的不高兴",
 ]
 NEGATION = r"(不會|不会|唔會|不想|唔想|不要|毋須)(再)?投[訴诉]"
-LABELS = {"complaint": "投訴升級", "supervisor": "要求主管介入", "dissatisfaction": "強烈不滿"}
+LABELS = {"complaint": "Complaint escalation", "supervisor": "Supervisor requested", "dissatisfaction": "Strong dissatisfaction"}
 
 
 def risk_type(phrase):

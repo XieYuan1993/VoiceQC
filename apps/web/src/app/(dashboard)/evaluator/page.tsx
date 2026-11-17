@@ -1,6 +1,6 @@
 import { auth } from "@/auth";
 import { getActiveProject } from "@/lib/project";
-import { canManage } from "@/lib/roles";
+import { canManage, isAdmin } from "@/lib/roles";
 
 import { cookieHeader } from "../_data";
 import { EvaluatorTabs } from "./evaluator-tabs";
@@ -23,7 +23,7 @@ export default async function EvaluatorPage() {
         </p>
       </div>
 
-      <EvaluatorTabs key={projectId} projectId={projectId} canManage={manage} />
+      <EvaluatorTabs key={projectId} projectId={projectId} canManage={manage} canApprove={isAdmin(session?.user?.role)} />
     </div>
   );
 }

@@ -56,7 +56,7 @@ export default async function SettingsPage() {
       <AppSettingsSection canManage={manage} projectId={projectId} />
       <NavigationSettings key={`nav-${projectId}`} projectId={projectId} canManage={manage} />
       <SupervisorSettings key={projectId} projectId={projectId} canManage={manage} />
-      <Link href="/evaluator#knowledge" className="inline-flex items-center gap-2 text-sm text-primary">管理知識卡片、常見問題及熱詞<ArrowRight className="h-4 w-4" /></Link>
+      <Link href="/evaluator#knowledge" className="inline-flex items-center gap-2 text-sm text-primary">Manage knowledge cards, FAQs and hotwords<ArrowRight className="h-4 w-4" /></Link>
     </div>
   );
 }

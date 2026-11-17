@@ -249,6 +249,8 @@ async def put_setting(
     session: AsyncSession = Depends(get_session),
     meta: ClientMeta = Depends(client_meta),
 ) -> SettingOut:
+    if key == "asr.post_correction_replacements" and user.role != "admin":
+        raise HTTPException(403, "Only administrators can publish correction rules")
     validator = VALIDATORS.get(key)
     if validator is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"unknown setting key {key!r}")

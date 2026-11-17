@@ -56,8 +56,8 @@ const POLL_MS = 5000;
 const REC_PAGE_SIZE = 50;
 const ASR_PROVIDER_OPTIONS = [
   { value: "tencent", label: "Tencent ASR", model: "16k_zh_en" },
-  { value: "dyna", label: "Dyna ASR + Flow · 粵語", model: "manual_split_16k_yue" },
-  { value: "dyna-cmn", label: "Dyna ASR + Flow · 普通話", model: "manual_split_16k" },
+  { value: "dyna", label: "Dyna ASR + Flow - Cantonese", model: "manual_split_16k_yue" },
+  { value: "dyna-cmn", label: "Dyna ASR + Flow - Mandarin", model: "manual_split_16k" },
   { value: "qwen", label: "Qwen ASR", model: "qwen3-asr-flash" },
   { value: "google", label: "Google STT", model: "chirp_2" },
   { value: "gemini", label: "Gemini audio", model: "gemini-3.5-flash" },

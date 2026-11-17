@@ -1161,6 +1161,13 @@ class TranscriptSegment(Base):
 class IndustryTerm(Base):
     __tablename__ = "industry_terms"
 
+    approval_status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'approved'"))
+    submitted_by: Mapped[str | None] = mapped_column(Text)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reviewed_by: Mapped[str | None] = mapped_column(Text)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    pending_rules: Mapped[list[dict]] = mapped_column(JSONB, nullable=False, server_default=text("'[]'"))
+
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
@@ -1183,6 +1190,8 @@ class IndustryTerm(Base):
 
     __table_args__ = (
         UniqueConstraint("project_id", "canonical", name="uq_industry_terms_project_id_canonical"),
+        CheckConstraint("approval_status IN ('pending', 'approved', 'rejected')", name="ck_term_approval_status"),
+        CheckConstraint("NOT active OR approval_status = 'approved'", name="ck_term_approved_active"),
         Index("ix_industry_terms_stock_code", "stock_code"),
         Index("ix_industry_terms_project_id", "project_id"),
     )
