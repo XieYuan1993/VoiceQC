@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from voiceqa_shared.audit import log_audit
@@ -172,6 +175,43 @@ async def list_evaluations(
         .all()
     )
     return [await _evaluation_out(session, ev) for ev in evaluations]
+
+
+@router.get("/evaluations/{evaluation_id}/export", response_class=Response)
+async def export_evaluation(
+    evaluation_id: uuid.UUID,
+    project_id: uuid.UUID = Depends(resolve_project_id),
+    user: User = Depends(require(TRANSCRIPTS_READ)),
+    session: AsyncSession = Depends(get_session),
+    meta: ClientMeta = Depends(client_meta),
+) -> Response:
+    ev = await _get_project_evaluation(session, evaluation_id, project_id)
+    rec = await _get_scoped(session, user, ev.recording_id, project_id)
+    if ev.status != "completed":
+        raise HTTPException(409, "Only completed evaluations can be exported")
+    crs = (ev.extracted_call_fields or {}).get("crs")
+    if not isinstance(crs, dict) or crs.get("mode") != "crs_classification":
+        raise HTTPException(404, "This evaluation has no CRS classification result")
+    payload = {
+        "schema_version": "1.0",
+        "exported_at": datetime.now(UTC),
+        "project_id": project_id,
+        "recording": {"id": rec.id, "filename": rec.original_filename},
+        "evaluation": {
+            "id": ev.id, "run_seq": ev.run_seq, "status": ev.status,
+            "created_at": ev.created_at, "completed_at": ev.completed_at,
+            "summary": ev.summary, "crs": crs,
+        },
+    }
+    content = json.dumps(jsonable_encoder(payload), ensure_ascii=False, indent=2) + "\n"
+    log_audit(session, action="evaluation.export", user_id=user.id, actor_email=user.email,
+              object_type="evaluation", object_id=str(ev.id),
+              details={"recording_id": str(rec.id), "run_seq": ev.run_seq, "format": "json"},
+              ip=meta.ip, user_agent=meta.user_agent)
+    await session.commit()
+    return Response(content=content.encode("utf-8"), media_type="application/json",
+                    headers={"Content-Disposition": f'attachment; filename="crs_{rec.id}_run_{ev.run_seq}.json"',
+                             "Cache-Control": "private, no-store"})
 
 
 @router.post("/recordings/{recording_id}/evaluations", response_model=EvalRerunOut)
